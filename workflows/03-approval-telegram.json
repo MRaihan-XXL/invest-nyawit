@@ -1,0 +1,373 @@
+{
+  "name": "03-approval-telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000001",
+      "name": "Telegram Callback",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse callback: \"approve:<id>\" / \"reject:<id>\" (naskah) dan\n// \"strategy:<id>\" / \"strategy-discard:<id>\" (analitik) — hanya pemilik chat yang sah.\nconst cq = $json.callback_query || {};\nconst data = cq.data || '';\nconst chatId = String((cq.from && cq.from.id) || '');\nconst m = data.match(/^(approve|reject):(\\d+)$/);\nconst ms = data.match(/^strategy(-discard)?:(\\d+)$/);\nconst owner = String($env.TELEGRAM_CHAT_ID || '');\nconst authorized = (!!m || !!ms) && chatId === owner;\nreturn {\n  json: {\n    callback_id: cq.id,\n    kind: m ? 'script' : (ms ? 'strategy' : null),\n    action: m ? m[1] : (ms ? (ms[1] ? 'strategy-discard' : 'strategy') : null),\n    script_id: m ? Number(m[2]) : null,\n    strategy_id: ms ? Number(ms[2]) : null,\n    authorized,\n    requester: chatId\n  }\n};"
+      },
+      "id": "a3000001-0000-4000-8000-000000000002",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.authorized }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000003",
+      "name": "Owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.kind }}",
+              "rightValue": "strategy",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000013",
+      "name": "Is Strategy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [560, -40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "strategy",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000014",
+      "name": "Activate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [780, -40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE strategy SET active = (id = $1), approved_at = CASE WHEN id = $1 THEN now() ELSE approved_at END WHERE active = true OR id = $1;",
+        "options": {
+          "queryReplacement": "={{ [ $json.strategy_id ] }}"
+        }
+      },
+      "id": "a3000001-0000-4000-8000-000000000015",
+      "name": "Activate Strategy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1000, -160],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM strategy WHERE id = $1 AND active = false;",
+        "options": {
+          "queryReplacement": "={{ [ $json.strategy_id ] }}"
+        }
+      },
+      "id": "a3000001-0000-4000-8000-000000000016",
+      "name": "Discard Strategy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1000, 80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ callback_query_id: $('Parse Callback').item.json.callback_id, text: $('Parse Callback').item.json.action === 'strategy' ? '✅ Strategi v' + $('Parse Callback').item.json.strategy_id + ' aktif — eksekutor patuh mulai run berikutnya' : '🗑 Kandidat strategi dibuang' }) }}",
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000017",
+      "name": "Ack Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1220, -40]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scripts SET status = CASE WHEN $1 = 'approve' THEN 'approved' ELSE 'rejected' END, updated_at = now() WHERE id = $2;",
+        "options": {
+          "queryReplacement": "={{ [ $json.action, $json.script_id ] }}"
+        }
+      },
+      "id": "a3000001-0000-4000-8000-000000000004",
+      "name": "Update Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [660, -80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ callback_query_id: $('Parse Callback').item.json.callback_id, text: $('Parse Callback').item.json.action === 'approve' ? '✅ Masuk antrean publish' : '❌ Dibuang' }) }}",
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000005",
+      "name": "Ack Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/answerCallbackQuery",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ callback_query_id: $json.callback_id, text: '⚠️ Bukan pemilik bot' }) }}",
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000006",
+      "name": "Ack Unauthorized",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 120]
+    }
+  ],
+  "connections": {
+    "Telegram Callback": {
+      "main": [
+        [
+          {
+            "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner?": {
+      "main": [
+        [
+          {
+            "node": "Is Strategy?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ack Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Strategy?": {
+      "main": [
+        [
+          {
+            "node": "Activate?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate?": {
+      "main": [
+        [
+          {
+            "node": "Activate Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discard Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Strategy": {
+      "main": [
+        [
+          {
+            "node": "Ack Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discard Strategy": {
+      "main": [
+        [
+          {
+            "node": "Ack Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status": {
+      "main": [
+        [
+          {
+            "node": "Ack Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

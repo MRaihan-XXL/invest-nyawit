@@ -1,0 +1,269 @@
+{
+  "name": "01-harvest-products",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "a1000001-0000-4000-8000-000000000001",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(changes, '{}'::jsonb) AS changes FROM strategy WHERE active = true ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "a1000001-0000-4000-8000-000000000010",
+      "name": "Load Strategy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [110, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kata kunci: dari strategi aktif (hasil analis AI) kalau ada, else fallback daftar di bawah.\n// Prinsip: produk impulse-buy 15rb-150rb, komisi bagus, masalah harian.\nconst DEFAULT_KEYWORDS = [\n  'alat dapur unik',\n  'organizer rumah',\n  'alat kecantikan praktis',\n  'aksesorik HP unik',\n  'alat mandi praktis',\n  'perlengkapan mobil',\n  'mainan edukasi anak',\n  'alat olahraga rumah'\n];\nlet keywords = DEFAULT_KEYWORDS;\ntry {\n  const changes = $('Load Strategy').item.json.changes || {};\n  if (Array.isArray(changes.keywords_id) && changes.keywords_id.length) {\n    keywords = changes.keywords_id.map(k => String(k).trim()).filter(Boolean).slice(0, 12);\n  }\n} catch (e) {\n  // strategy belum ada / pairing tidak tersedia → pakai fallback\n}\nreturn keywords.map(keyword => ({ json: { keyword, track: 'id' } }));"
+      },
+      "id": "a1000001-0000-4000-8000-000000000002",
+      "name": "ID Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bangun body GraphQL + tanda tangan Shopee Affiliate.\n// Skema signing: SHA256(appid + timestamp + body + secret)\nconst crypto = require('crypto');\nconst appid = $env.SHOPEE_AFFILIATE_APPID;\nconst secret = $env.SHOPEE_AFFILIATE_SECRET;\nif (!appid || !secret) throw new Error('SHOPEE_AFFILIATE_APPID/SECRET belum diisi di .env');\n\nconst out = [];\nfor (const item of $input.all()) {\n  const kw = item.json.keyword;\n  const query = `{\n    productOfferV2(keyword: \"${kw}\", listType: 1, sortType: 5, page: 1, limit: 20) {\n      nodes {\n        itemId productName productLink offerLink imageUrl\n        priceMin priceMax priceDiscountRate sales ratingStar\n        commissionRate sellerCommissionRate commission\n        shopId shopName periodStartTime periodEndTime\n      }\n      pageInfo { page limit hasNextPage }\n    }\n  }`;\n  const body = JSON.stringify({ query });\n  const ts = Math.floor(Date.now() / 1000);\n  const sign = crypto.createHash('sha256').update(appid + String(ts) + body + secret).digest('hex');\n  out.push({\n    json: {\n      keyword: kw,\n      track: item.json.track,\n      body,\n      auth: `SHA256 Credential=${appid}, Signature=${sign}, Timestamp=${ts}`\n    }\n  });\n}\nreturn out;"
+      },
+      "id": "a1000001-0000-4000-8000-000000000003",
+      "name": "Sign Shopee Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open-api.affiliate.shopee.co.id/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json.auth }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1000001-0000-4000-8000-000000000004",
+      "name": "Shopee productOfferV2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalisasi + skor kurasi.\n// Skor: komisi (40%) + penjualan (20%) + rating (15%) + band harga (15%) + diskon (10%)\nconst keyword = $('Sign Shopee Request').item.json.keyword;\nconst res = $json;\nconst nodes = (res && res.data && res.data.productOfferV2 && res.data.productOfferV2.nodes) || [];\nconst out = [];\nfor (const n of nodes) {\n  const price = Number(n.priceMin || 0);\n  const rate = Number(n.commissionRate || 0);\n  const sales = Number(n.sales || 0);\n  const rating = Number(n.ratingStar || 0);\n  const discount = Number(n.priceDiscountRate || 0);\n\n  const rateScore = Math.min(rate / 0.30, 1) * 40;                       // komisi 30% = penuh\n  const salesScore = Math.min(Math.log10(sales + 10) / 4, 1) * 20;       // 10rb terjual = penuh\n  const ratingScore = Math.min(rating / 5, 1) * 15;\n  const priceScore = (price >= 15000 && price <= 150000) ? 15 : (price > 150000 ? 5 : 8);\n  const discountScore = Math.min(discount / 40, 1) * 10;\n  const score = Math.round((rateScore + salesScore + ratingScore + priceScore + discountScore) * 100) / 100;\n\n  const esc = s => String(s ?? '').replace(/'/g, \"''\");\n  const num = v => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? 'NULL' : Number(v));\n  const sql = `INSERT INTO products\n    (source, ext_id, track, title, image_url, product_url, offer_url,\n     price_min, price_max, discount_rate, sales, rating_star,\n     commission_rate, commission_amt, shop_name, score)\n  VALUES\n    ('shopee', '${esc(n.itemId)}', 'id', '${esc(n.productName)}', '${esc(n.imageUrl)}',\n     '${esc(n.productLink)}', '${esc(n.offerLink)}',\n     ${num(n.priceMin)}, ${num(n.priceMax)}, ${num(n.priceDiscountRate)}, ${num(n.sales)}, ${num(n.ratingStar)},\n     ${num(n.commissionRate)}, ${num(n.commission)}, '${esc(n.shopName)}', ${score})\n  ON CONFLICT (source, ext_id)\n  DO UPDATE SET score = EXCLUDED.score, updated_at = now();`;\n  out.push({ json: { sql, score, title: n.productName, keyword } });\n}\nreturn out.length ? out : [{ json: { sql: 'SELECT 1', skipped: true } }];"
+      },
+      "id": "a1000001-0000-4000-8000-000000000005",
+      "name": "Score & Normalize ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a1000001-0000-4000-8000-000000000006",
+      "name": "Upsert ID Products",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1100, -80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, program, commission, url, demo_image FROM seed_en_offers WHERE active = true;",
+        "options": {}
+      },
+      "id": "a1000001-0000-4000-8000-000000000007",
+      "name": "Load EN Seeds",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1100, 120],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Track EN: produk dari tabel seed (program afiliasi luar negeri tanpa API publik).\nconst out = [];\nfor (const item of $input.all()) {\n  const n = item.json;\n  if (!n.name || !n.url) continue;\n  const esc = s => String(s ?? '').replace(/'/g, \"''\");\n  // Skor tetap 55 — program recurring (SaaS) diutamakan; feedback loop menaikkan nanti.\n  const score = 55;\n  const sql = `INSERT INTO products\n    (source, ext_id, track, title, image_url, product_url, offer_url,\n     commission_rate, shop_name, score)\n  VALUES\n    ('seed_en', '${esc(n.name)}', 'en', '${esc(n.name)}', '${esc(n.demo_image || '')}',\n     '${esc(n.url)}', '${esc(n.url)}', NULL, '${esc(n.program + ': ' + (n.commission || ''))}', ${score})\n  ON CONFLICT (source, ext_id)\n  DO UPDATE SET score = EXCLUDED.score, updated_at = now();`;\n  out.push({ json: { sql, title: n.name } });\n}\nreturn out.length ? out : [{ json: { sql: 'SELECT 1', skipped: true } }];"
+      },
+      "id": "a1000001-0000-4000-8000-000000000008",
+      "name": "Normalize EN Seeds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 120]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a1000001-0000-4000-8000-000000000009",
+      "name": "Upsert EN Products",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1540, 120],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Load Strategy",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load EN Seeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Strategy": {
+      "main": [
+        [
+          {
+            "node": "ID Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ID Keywords": {
+      "main": [
+        [
+          {
+            "node": "Sign Shopee Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Shopee Request": {
+      "main": [
+        [
+          {
+            "node": "Shopee productOfferV2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopee productOfferV2": {
+      "main": [
+        [
+          {
+            "node": "Score & Normalize ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score & Normalize ID": {
+      "main": [
+        [
+          {
+            "node": "Upsert ID Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load EN Seeds": {
+      "main": [
+        [
+          {
+            "node": "Normalize EN Seeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize EN Seeds": {
+      "main": [
+        [
+          {
+            "node": "Upsert EN Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

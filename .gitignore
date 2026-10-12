@@ -1,0 +1,11 @@
+.env
+*.env
+!.env.example
+services/render/.venv/
+services/render/out/
+services/render/media/
+__pycache__/
+*.pyc
+node_modules/
+media/
+out/

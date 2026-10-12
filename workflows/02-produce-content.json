@@ -1,0 +1,562 @@
+{
+  "name": "02-produce-content",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000001",
+      "name": "Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(changes, '{}'::jsonb) AS changes FROM strategy WHERE active = true ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "a2000001-0000-4000-8000-000000000017",
+      "name": "Load Strategy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [110, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Terjemahkan strategi aktif → kuota harian + konteks prompt. Fallback ke env kalau kosong.\nconst changes = ($json.changes && typeof $json.changes === 'object') ? $json.changes : {};\nconst quota = changes.quota || {};\nconst quotaId = Number(quota.id || $env.POSTS_PER_DAY_ID || 3);\nconst quotaEn = Number(quota.en || $env.POSTS_PER_DAY_EN || 2);\nconst strategy = {\n  hook_style: String(changes.hook_style || ''),\n  tone: String(changes.tone || ''),\n  keywords: Array.isArray(changes.keywords_id) ? changes.keywords_id : [],\n  min_score: Number(changes.min_score || 0) || Number($env.AI_GATE_MIN || 70)\n};\nreturn { json: { quotaId, quotaEn, strategy } };"
+      },
+      "id": "a2000001-0000-4000-8000-000000000018",
+      "name": "Prepare Pick",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [165, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.id, p.track, p.title, p.image_url, p.product_url, p.offer_url, p.price_min, p.price_max, p.commission_rate, p.commission_amt, p.sales, p.rating_star, p.shop_name FROM products p WHERE p.status = 'new' AND NOT EXISTS (SELECT 1 FROM scripts s WHERE s.product_id = p.id AND s.status NOT IN ('dropped', 'failed')) AND ((p.track = 'id' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'id' AND sc.created_at >= date_trunc('day', now())) < $1) OR (p.track = 'en' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'en' AND sc.created_at >= date_trunc('day', now())) < $2)) ORDER BY p.score DESC LIMIT 2;",
+        "options": {
+          "queryReplacement": "={{ [ $('Prepare Pick').item.json.quotaId, $('Prepare Pick').item.json.quotaEn ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000002",
+      "name": "Pick Top Product",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a2000001-0000-4000-8000-000000000003",
+      "name": "Product Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Konfigurasi per track + prompt naskah video.\nconst p = $json;\nconst isEN = p.track === 'en';\nconst lang = isEN ? 'en' : 'id';\nconst voice = isEN ? 'en-US-JennyNeural' : 'id-ID-GadisNeural';\nconst handle = isEN ? ($env.HANDLE_EN || '@yourchannel') : ($env.HANDLE_ID || '@primefinds.id');\nconst strat = $('Prepare Pick').item.json.strategy || {};\n\nconst toneEN = 'Casual American TikTok voice, punchy, no cringe, honest-review energy.';\nconst toneID = 'Bahasa Indonesia santai ala TikTok, gen Z, to the point, tidak norak.';\nconst priceTxt = p.price_min ? `Harga sekitar Rp${Math.round(Number(p.price_min))}` : '';\n\nconst systemPrompt = isEN\n  ? 'You are a short-form video scriptwriter for a faceless affiliate channel reviewing software/AI tools and gadgets. Output STRICT JSON only.'\n  : 'Kamu penulis naskah video pendek untuk akun finds/affiliation Indonesia. Output HANYA JSON ketat.';\n\nconst userPrompt = `Produk: ${p.title}\nToko/sumber: ${p.shop_name || '-'}\n${priceTxt}\nKomisi: ${p.commission_rate ? (Number(p.commission_rate) * 100).toFixed(1) + '%' : (p.commission_amt || '-')}\n\nBuat naskah video 3-4 scene (total narasi 20-35 detik):\n- Scene 1 = HOOK 1 kalimat yang bikin stop scroll (tanpa bohong, tanpa klaim berlebihan)\n- Scene 2-3 = benefit nyata + bukti dari data produk (jangan mengarang fitur)\n- Scene terakhir = CTA (klik keranjang kuning / link di bio)\nGaya: ${isEN ? toneEN : toneID}${strat.hook_style ? `\nGaya hook (hasil analis): ${strat.hook_style}` : ''}${strat.tone ? `\nNada (hasil analis): ${strat.tone}` : ''}\n\nFormat JSON:\n{\n  \"title\": \"judul internal singkat\",\n  \"hook\": \"kalimat hook\",\n  \"scenes\": [{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}],\n  \"caption\": \"caption postingan 1-2 kalimat\",\n  \"hashtags\": \"#tag1 #tag2 #tag3 (3-5 tag relevan)\"\n}\nAturan: maksimal 20 kata per scene. Tanpa emoji di dalam scene text (jadi subtitle).`;\n\nconst payload = {\n  model: $env.LLM_MODEL,\n  temperature: 0.8,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]\n};\n\nreturn {\n  json: {\n    ...p,\n    lang,\n    voice,\n    handle,\n    gate_min: strat.min_score || Number($env.AI_GATE_MIN || 70),\n    scriptRequest: payload,\n    scriptEndpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    scriptAuth: 'Bearer ' + ($env.LLM_API_KEY || '')\n  }\n};"
+      },
+      "id": "a2000001-0000-4000-8000-000000000004",
+      "name": "Track Config + Script Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.scriptEndpoint }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json.scriptAuth }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.scriptRequest }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000005",
+      "name": "LLM Write Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse JSON naskah dari LLM (toleran terhadap code fence).\nconst ctx = $('Track Config + Script Prompt').item.json;\nlet content = $json.choices[0].message.content || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('LLM tidak menghasilkan JSON: ' + content.slice(0, 300));\nconst s = JSON.parse(m[0]);\n\nconst scenes = [];\nconst hookText = (s.hook || (s.scenes && s.scenes[0] && s.scenes[0].text) || '').trim();\nif (hookText) scenes.push({ text: hookText, image: ctx.image_url, style: 'hook' });\nfor (const sc of (s.scenes || [])) {\n  const t = (sc.text || '').trim();\n  if (!t || t === hookText) continue;\n  scenes.push({ text: t, image: ctx.image_url });\n}\nif (scenes.length < 2) throw new Error('naskah kurang dari 2 scene');\n\nconst caption = ((s.caption || '') + ' ' + (s.hashtags || '')).trim().slice(0, 900);\nconst gatePrompt = `Kamu manajer kualitas konten. nilai video singkat ini.\nProduk: ${ctx.title}\nNaskah: ${JSON.stringify(scenes.map(x => x.text))}\nCaption: ${caption}\n\nRubrik (0-100):\n- Hook 3 detik pertama (30)\n- Jujur & tidak mengarang fitur (30)\n- Kepatuhan platform: tanpa klaim medis/kemenangan pasti/tanpa spam (25)\n- Keterbacaan subtitle (15)\n\nOutput JSON: {\"score\": 0-100, \"compliant\": true/false, \"reasons\": [\"...\"]}`;\n\nreturn {\n  json: {\n    ...ctx,\n    title_script: s.title || ctx.title,\n    hook: hookText,\n    scenes,\n    caption,\n    gateRequest: {\n      model: ctx.scriptRequest.model,\n      temperature: 0.2,\n      messages: [\n        { role: 'system', content: 'You are a strict content QA manager. JSON output only.' },\n        { role: 'user', content: gatePrompt }\n      ]\n    }\n  }\n};"
+      },
+      "id": "a2000001-0000-4000-8000-000000000006",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.scriptEndpoint }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json.scriptAuth }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gateRequest }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000007",
+      "name": "LLM Quality Gate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluasi gate: output 0 = LULUS (lanjut render), output 1 = TOLAK.\nconst ctx = $('Parse Script').item.json;\nlet content = $json.choices[0].message.content || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nconst verdict = m ? JSON.parse(m[0]) : { score: 0, compliant: false, reasons: ['gate parse error'] };\n\nconst min = Number(ctx.gate_min || $env.AI_GATE_MIN || 70);\nconst pass = Number(verdict.score) >= min && verdict.compliant === true;\n\nconst item = {\n  json: {\n    ...ctx,\n    ai_score: Number(verdict.score) || 0,\n    ai_verdict: verdict,\n    gate_min: min\n  }\n};\nreturn pass ? [[item]] : [[], [item]];"
+      },
+      "id": "a2000001-0000-4000-8000-000000000008",
+      "name": "Evaluate Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, -100],
+      "outputs": 2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE products SET status = 'used', updated_at = now() WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Parse Script').item.json.id ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000009",
+      "name": "Mark Product Used",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, 40],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO scripts (product_id, track, language, voice, title, hook, scenes_json, caption, ai_score, ai_verdict, status) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb, 'pending') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Parse Script').item.json.id, $('Parse Script').item.json.track, $('Parse Script').item.json.lang, $('Parse Script').item.json.voice, $('Parse Script').item.json.title_script, $('Parse Script').item.json.hook, JSON.stringify($('Parse Script').item.json.scenes), $('Parse Script').item.json.caption, $('Evaluate Gate').item.json.ai_score, JSON.stringify($('Evaluate Gate').item.json.ai_verdict) ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000010",
+      "name": "Insert Script",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, -200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RENDER_SERVICE_URL }}/render",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ id: 'script_' + $json.id, language: $('Parse Script').item.json.lang, voice: $('Parse Script').item.json.voice, handle: $('Parse Script').item.json.handle, scenes: $('Parse Script').item.json.scenes }) }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000011",
+      "name": "Render Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, -200],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a2000001-0000-4000-8000-000000000012",
+      "name": "Render OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2200, -200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scripts SET status = 'rendered', media_file = $1, media_bytes = $2, render_seconds = $3, updated_at = now() WHERE id = $4;",
+        "options": {
+          "queryReplacement": "={{ [ $json.file, $json.bytes || 0, $json.elapsed || 0, $('Insert Script').item.json.id ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000013",
+      "name": "Mark Rendered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2420, -280],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendVideo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, video: $env.PUBLIC_MEDIA_URL + $('Render Video').item.json.file, caption: '🎬 ' + ($('Parse Script').item.json.title_script || '') + '\\n\\n' + ($('Parse Script').item.json.caption || '') + '\\n\\nAI score: ' + ($('Evaluate Gate').item.json.ai_score) + '/' + ($('Evaluate Gate').item.json.gate_min), reply_markup: { inline_keyboard: [[{ text: '✅ Tayangkan', callback_data: 'approve:' + $('Insert Script').item.json.id }, { text: '❌ Buang', callback_data: 'reject:' + $('Insert Script').item.json.id }]] } }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000014",
+      "name": "Telegram Preview",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, -280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scripts SET status = 'dropped', error = $1, updated_at = now() WHERE id = $2;",
+        "options": {
+          "queryReplacement": "={{ [ 'AI gate ' + ($json.ai_score || 0) + ': ' + JSON.stringify($json.ai_verdict || {}), $('Parse Script').item.json.id ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000015",
+      "name": "Mark Dropped",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1760, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scripts SET status = 'failed', error = $1, updated_at = now() WHERE id = $2;",
+        "options": {
+          "queryReplacement": "={{ [ 'render failed: ' + ($json.error || 'unknown'), $('Insert Script').item.json.id ] }}"
+        }
+      },
+      "id": "a2000001-0000-4000-8000-000000000016",
+      "name": "Mark Render Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [2420, -80],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6h": {
+      "main": [
+        [
+          {
+            "node": "Load Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Strategy": {
+      "main": [
+        [
+          {
+            "node": "Prepare Pick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Pick": {
+      "main": [
+        [
+          {
+            "node": "Pick Top Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Top Product": {
+      "main": [
+        [
+          {
+            "node": "Product Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Found?": {
+      "main": [
+        [
+          {
+            "node": "Track Config + Script Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Config + Script Prompt": {
+      "main": [
+        [
+          {
+            "node": "LLM Write Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Write Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "LLM Quality Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Quality Gate": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Gate": {
+      "main": [
+        [
+          {
+            "node": "Mark Product Used",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Dropped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Product Used": {
+      "main": [
+        [
+          {
+            "node": "Insert Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Script": {
+      "main": [
+        [
+          {
+            "node": "Render Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Video": {
+      "main": [
+        [
+          {
+            "node": "Render OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render OK?": {
+      "main": [
+        [
+          {
+            "node": "Mark Rendered",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Render Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rendered": {
+      "main": [
+        [
+          {
+            "node": "Telegram Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,320 @@
+{
+  "name": "06-strategy-analyst",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "a6000001-0000-4000-8000-000000000001",
+      "name": "Weekly Analyst",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.id AS post_id, p.external_id AS media_id, t.access_token FROM posts p, tokens t WHERE p.platform = 'instagram' AND p.status = 'published' AND t.platform = 'instagram' AND COALESCE(t.access_token, '') <> '' AND p.posted_at >= now() - interval '30 days' AND COALESCE(p.external_id, '') <> '' ORDER BY p.posted_at DESC LIMIT 20;",
+        "options": {},
+        "alwaysOutputData": true
+      },
+      "id": "a6000001-0000-4000-8000-000000000002",
+      "name": "IG Candidates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.media_id || '' }}?fields=id,insights.metric(plays,likes,comments,saved,shares)&access_token={{ $json.access_token || '' }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a6000001-0000-4000-8000-000000000003",
+      "name": "IG Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simpan insights IG ke post_metrics. Response: {id, insights:{data:[{name,values}]}}\n// Tidak butuh pairing: media id ada di response → SQL pakai subquery external_id.\nconst g = (arr, name) => {\n  const m = arr.find(x => x.name === name);\n  if (!m || !m.values || !m.values[0]) return null;\n  return Number(m.values[0].value || 0);\n};\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const arr = (j.insights && j.insights.data) || [];\n  if (!j.id || !arr.length) continue;\n  const esc = s => String(s).replace(/'/g, \"''\");\n  const v = x => (x === null || x === undefined || Number.isNaN(Number(x)) ? 'NULL' : Number(x));\n  const sql = `INSERT INTO post_metrics (post_id, source, plays, likes, comments, saves, shares)\n    SELECT p.id, 'ig', ${v(g(arr, 'plays'))}, ${v(g(arr, 'likes'))}, ${v(g(arr, 'comments'))}, ${v(g(arr, 'saved'))}, ${v(g(arr, 'shares'))}\n    FROM posts p WHERE p.external_id = '${esc(j.id)}'\n    ON CONFLICT (post_id, source)\n    DO UPDATE SET plays = EXCLUDED.plays, likes = EXCLUDED.likes, comments = EXCLUDED.comments,\n                  saves = EXCLUDED.saves, shares = EXCLUDED.shares, fetched_at = now();`;\n  out.push({ json: { sql } });\n}\nreturn out.length ? out : [{ json: { sql: 'SELECT 1', skipped: true } }];"
+      },
+      "id": "a6000001-0000-4000-8000-000000000004",
+      "name": "Save Insights",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a6000001-0000-4000-8000-000000000005",
+      "name": "Write Insights",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_build_object(\n  'funnel', (SELECT json_agg(x) FROM (SELECT status, COUNT(*)::int AS n FROM scripts GROUP BY status) x),\n  'income_7d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '7 days'),\n  'income_30d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '30 days'),\n  'orders_7d', (SELECT COUNT(*)::int FROM conversions WHERE ts >= now() - interval '7 days'),\n  'posts_7d', (SELECT COUNT(*)::int FROM posts WHERE posted_at >= now() - interval '7 days'),\n  'posts_by_platform', (SELECT json_agg(x) FROM (SELECT platform, COUNT(*)::int AS n FROM posts WHERE posted_at >= now() - interval '7 days' GROUP BY platform) x),\n  'avg_score_7d', (SELECT ROUND(AVG(ai_score),1) FROM scripts WHERE ai_score IS NOT NULL AND updated_at >= now() - interval '7 days'),\n  'drop_rate_pct', (SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('dropped','failed')) / COUNT(*), 1) END FROM scripts),\n  'post_metrics', (SELECT json_agg(x) FROM (SELECT s.track, pm.likes, pm.comments, pm.plays, pm.saves, pm.shares, p.posted_at FROM post_metrics pm JOIN posts p ON p.id = pm.post_id JOIN scripts s ON s.id = p.script_id WHERE pm.fetched_at >= now() - interval '7 days' ORDER BY pm.fetched_at DESC LIMIT 30) x),\n  'active_strategy', (SELECT json_build_object('version', version, 'changes', changes, 'health', health_score) FROM strategy WHERE active = true ORDER BY id DESC LIMIT 1),\n  'top_products', (SELECT json_agg(x) FROM (SELECT title, score, status FROM products ORDER BY score DESC LIMIT 5) x)\n) AS metrics;",
+        "options": {}
+      },
+      "id": "a6000001-0000-4000-8000-000000000006",
+      "name": "Collect Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1100, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Susun permintaan LLM untuk AI strategist (mingguan).\nconst raw = $json.metrics || {};\nconst metrics = typeof raw === 'string' ? JSON.parse(raw) : raw;\n\nconst system = 'You are a pragmatic growth strategist for short-form affiliate channels (TikTok + Instagram Reels). You analyze real weekly metrics and propose concrete, conservative changes. Output STRICT JSON only.';\n\nconst user = `Analisis data mingguan pipeline invest-nyawit dan usulkan strategi baru.\n\nDATA (7 hari terakhir):\n${JSON.stringify(metrics)}\n\nKeluarkan HANYA JSON dengan skema:\n{\n  \"analysis\": \"ringkasan analisis 2-4 kalimat (apa yang naik/turun dan mengapa)\",\n  \"keep\": [\"elemen strategi yang terbukti & dipertahankan\"],\n  \"stop\": [\"yang harus dihentikan/diubah\"],\n  \"changes\": {\n    \"keywords_id\": [\"5-8 kata kunci produk Shopee, impulse-buy 15rb-150rb\"],\n    \"hook_style\": \"gaya hook unggulan, maks 8 kata\",\n    \"tone\": \"nada penulisan singkat\",\n    \"min_score\": 70,\n    \"quota\": { \"id\": 3, \"en\": 2 }\n  },\n  \"hypotheses\": [\"1-2 uji A/B konkret\"],\n  \"health\": 75\n}\n\nAturan:\n- min_score 50-95; quota.id 0-6; quota.en 0-4; health 0-100 (angka).\n- Jangan mengarang metrik yang tidak ada di DATA.\n- Jika data kosong/sangat sedikit, buat perubahan kecil dan sebutkan alasannya.`;\n\nreturn {\n  json: {\n    endpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    auth: 'Bearer ' + ($env.LLM_API_KEY || ''),\n    request: {\n      model: $env.LLM_MODEL,\n      temperature: 0.3,\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: user }\n      ]\n    }\n  }\n};"
+      },
+      "id": "a6000001-0000-4000-8000-000000000007",
+      "name": "Build Analyst Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.endpoint }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json.auth }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a6000001-0000-4000-8000-000000000008",
+      "name": "LLM Strategist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse + clamp hasil analis. Output = kandidat strategi (belum aktif).\nlet content = ($json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content) || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('LLM analis tidak menghasilkan JSON: ' + content.slice(0, 300));\nconst s = JSON.parse(m[0]);\n\nconst clamp = (v, lo, hi, dflt) => {\n  const n = Number(v);\n  if (!Number.isFinite(n)) return dflt;\n  return Math.min(hi, Math.max(lo, n));\n};\nconst strArr = (a, max) => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean).slice(0, max) : []);\n\nconst c = (s.changes && typeof s.changes === 'object') ? s.changes : {};\nconst q = (c.quota && typeof c.quota === 'object') ? c.quota : {};\nconst changes = {\n  keywords_id: strArr(c.keywords_id, 12),\n  hook_style: String(c.hook_style || '').slice(0, 80),\n  tone: String(c.tone || '').slice(0, 120),\n  min_score: clamp(c.min_score, 50, 95, Number($env.AI_GATE_MIN || 70)),\n  quota: {\n    id: clamp(q.id, 0, 6, Number($env.POSTS_PER_DAY_ID || 3)),\n    en: clamp(q.en, 0, 4, Number($env.POSTS_PER_DAY_EN || 2))\n  }\n};\nreturn {\n  json: {\n    analysis: String(s.analysis || '').slice(0, 1500),\n    keep: strArr(s.keep, 10),\n    stop: strArr(s.stop, 10),\n    changes,\n    hypotheses: strArr(s.hypotheses, 5),\n    health: clamp(s.health, 0, 100, 50)\n  }\n};"
+      },
+      "id": "a6000001-0000-4000-8000-000000000009",
+      "name": "Parse Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO strategy (version, analysis, changes, hypotheses, health_score) VALUES ((SELECT COALESCE(MAX(version), 0) + 1 FROM strategy), $1::jsonb, $2::jsonb, $3::jsonb, $4) RETURNING id, version;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.analysis || ''), JSON.stringify($json.changes || {}), JSON.stringify($json.hypotheses || []), $json.health || null ] }}"
+        }
+      },
+      "id": "a6000001-0000-4000-8000-000000000010",
+      "name": "Insert Strategy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1980, 0],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '🧠 AI Analis — Strategi v' + $('Insert Strategy').item.json.version + ' (belum aktif)\\n\\n' + ($('Parse Strategy').item.json.analysis || '') + '\\n\\nHealth: ' + $('Parse Strategy').item.json.health + '/100\\nQuota: ID ' + $('Parse Strategy').item.json.changes.quota.id + '/hari · EN ' + $('Parse Strategy').item.json.changes.quota.en + '/hari\\nHook: ' + ($('Parse Strategy').item.json.changes.hook_style || '-') + '\\nKeep: ' + ($('Parse Strategy').item.json.keep.join(', ') || '-') + '\\nStop: ' + ($('Parse Strategy').item.json.stop.join(', ') || '-') + '\\n\\nStrategi baru hanya aktif setelah kamu tap di bawah.', reply_markup: { inline_keyboard: [[{ text: '✅ Pakai strategi ini', callback_data: 'strategy:' + $('Insert Strategy').item.json.id }, { text: '❌ Buang', callback_data: 'strategy-discard:' + $('Insert Strategy').item.json.id }]] } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a6000001-0000-4000-8000-000000000011",
+      "name": "Telegram Proposal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 0],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Weekly Analyst": {
+      "main": [
+        [
+          {
+            "node": "IG Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG Candidates": {
+      "main": [
+        [
+          {
+            "node": "IG Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG Insights": {
+      "main": [
+        [
+          {
+            "node": "Save Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Insights": {
+      "main": [
+        [
+          {
+            "node": "Write Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Insights": {
+      "main": [
+        [
+          {
+            "node": "Collect Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Metrics": {
+      "main": [
+        [
+          {
+            "node": "Build Analyst Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analyst Request": {
+      "main": [
+        [
+          {
+            "node": "LLM Strategist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Strategist": {
+      "main": [
+        [
+          {
+            "node": "Parse Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Strategy": {
+      "main": [
+        [
+          {
+            "node": "Insert Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Strategy": {
+      "main": [
+        [
+          {
+            "node": "Telegram Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

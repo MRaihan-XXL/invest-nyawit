@@ -1,0 +1,43 @@
+# invest-nyawit — Caddy: HTTPS otomatis (Let's Encrypt) + reverse proxy n8n + media publik
+# DOMAIN diinjek dari docker-compose environment.
+
+{$DOMAIN} {
+	# Media hasil render — dibutuhkan IG Graph API (video_url) & preview Telegram.
+	# Hanya .mp4 yang disajikan; sisanya 404.
+	handle_path /media/* {
+		root * /media
+		@notmp4 not path *.mp4
+		respond @notmp4 404
+		file_server
+	}
+
+	# Dashboard statistik — basic auth (user/hash dari .env; hash: caddy hash-password).
+	@stats path /stats /stats/* /api/* /index.html
+	basic_auth @stats {
+		{$STATS_USER} {$BASIC_AUTH_HASH}
+	}
+	handle /stats* {
+		reverse_proxy dashboard:8091
+	}
+	handle /api/* {
+		reverse_proxy dashboard:8091
+	}
+	handle /index.html {
+		reverse_proxy dashboard:8091
+	}
+
+	# Link-in-bio — PUBLIK tanpa auth (klik dari video).
+	handle /bio* {
+		reverse_proxy dashboard:8091
+	}
+
+	# Dashboard + webhook n8n
+	handle {
+		reverse_proxy n8n:5678
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+	}
+}

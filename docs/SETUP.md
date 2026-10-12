@@ -1,0 +1,170 @@
+# SETUP — dari nol sampai jalan 24/7
+
+Ikuti urutannya. Bagian yang **wajib manual** (karena butuh login/klikmu): daftar
+akun, OAuth sekali, tempel token. Sisanya otomatis.
+
+## 0. Persiapan akun (sekali, ~1 jam)
+
+### 0a. TikTok — rebrand akun lama
+1. Buka @dewa_gacor20 → ganti nama jadi nama finds (mis. **@primefinds.id** juga,
+   atau @gudang.finds). Ganti bio: "Barang unik harga mahasiswa 🔍".
+2. Ganti ke **akun Kreator**: Pengaturan → Kelola akun → Alihkan ke Akun Kreator.
+3. Hapus semua unggahan lama (kalau ada). Nama lama "gacor" = magnet masalah.
+
+### 0b. Instagram
+1. @primefinds.id → Settings → Account type → **Professional** (Creator).
+2. Bikin juga **Facebook Page** (terhubung ke IG ini) — syarat Graph API.
+
+### 0c. Telegram
+1. Chat @BotFather → `/newbot` → simpan **token**.
+2. Chat @userinfobot → catat **chat ID** kamu (untuk approval).
+
+### 0d. Shopee Affiliate Open API
+1. Daftar https://affiliate.shopee.co.id → aktivasi program affiliate.
+2. Menu Open API / Developer → buat aplikasi → dapat **APPID + SECRET**.
+3. Catatan: kalau opsi Open API belum muncul, aktifkan dulu Traffic/Content
+   creator di dashboard affiliate, atau hubungi support Shopee.
+
+### 0e. TikTok Developer (Content Posting API)
+1. https://developers.tiktok.com → daftar (pakai email, bukan akun spam).
+2. Create app → tambah produk **Content Posting API** → mode **Direct Post +
+   Inbox** → aktifkan scope `video.upload` (inbox mode, tanpa audit).
+3. Set redirect URI: `https://DOMAIN-KAMU/callback-oauth` (isi setelah VPS jalan).
+4. Catat **Client Key + Client Secret**.
+
+### 0f. Instagram Graph API
+1. https://developers.facebook.com → Create App → tipe **Business** →
+   tambah product **Instagram Graph API**.
+2. Catat **App ID + App Secret**.
+
+## 1. VPS Oracle Always Free (~15 menit)
+
+1. https://www.oracle.com/cloud/free/ → daftar (kartu hanya verifikasi, tidak
+   dicharge). Pilih region Asia (Singapore/Osaka) kalau tersedia.
+2. Create Instance:
+   - Shape: **VM.Standard.A1.Flex**, **2 OCPU / 12 GB RAM**
+   - Image: **Ubuntu 24.04** (aarch64), boot volume 50 GB
+3. Catat **IP publik** + buka port 80/443 di Security List (ingress rules).
+4. Install Docker:
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   sudo usermod -aG docker $USER && newgrp docker
+   ```
+
+## 2. DuckDNS (domain gratis)
+
+1. https://www.duckdns.org → login GitHub/Google → buat subdomain, mis. `investmu`.
+   Arahkan ke IP VPS.
+2. Catat token untuk Caddy (opsional, auto-renew).
+
+## 3. Deploy stack
+
+```bash
+scp -r invest-nyawit/ ubuntu@IP_VPS:/home/ubuntu/
+ssh ubuntu@IP_VPS
+cd invest-nyawit
+cp .env.example .env && nano .env     # isi SEMUA nilai
+
+# WAJIB sebelum up: buat hash basic auth untuk dashboard /stats
+# (perhatikan: perintahnya diawali 'caddy' — image Caddy memakai CMD, bukan ENTRYPOINT;
+#  --env-file .env juga wajib — compose tidak baca .env root secara otomatis)
+docker compose --env-file .env -f server/docker-compose.yml run --rm --no-deps caddy caddy hash-password --plaintext 'pilih-kata-sandi-dashboard'
+# tempel hasilnya (diawali $2a$/$2b$) ke .env → BASIC_AUTH_HASH, DENGAN kutip satu:
+#   BASIC_AUTH_HASH='$2a$12$...'
+nano .env
+
+docker compose --env-file .env -f server/docker-compose.yml up -d --build
+```
+
+Cek: `docker compose --env-file .env -f server/docker-compose.yml ps` (semua Up),
+buka `https://investmu.duckdns.org` → halaman login n8n (user/pass dibuat sekali).
+
+Dashboard: `https://investmu.duckdns.org/stats` (user/pass = `STATS_USER` + kata
+sandi yang tadi di-hash). Link-in-bio publik: `https://investmu.duckdns.org/bio`.
+
+## 4. Import workflow n8n
+
+1. Dashboard n8n → **Workflows → Import from File** → ulangi untuk 6 file di
+   folder `workflows/` (termasuk `06-strategy-analyst`).
+2. Di tiap node Postgres (ditandai `REPLACE_ME`) → pilih/isi kredensial:
+   host `postgres`, port 5432, DB/user/password = nilai `.env`.
+3. Workflow `03-approval-telegram` → node Telegram Callback → kredensial
+   **Telegram API**: isi bot token dari @BotFather.
+4. Activate (toggle) semua workflow.
+
+## 5. OAuth sekali — isi tabel tokens
+
+### TikTok (scope `video.upload`)
+1. Buka link authorize (ganti CLIENT_KEY & DOMAIN):
+   ```
+   https://www.tiktok.com/v2/auth/authorize/?client_key=CLIENT_KEY&scope=video.upload&response_type=code&redirect_uri=https://DOMAIN-KAMU/callback-oauth&state=xyz
+   ```
+2. Setujui → redirect ke callback (404 tidak masalah) → salat `code=` dari URL.
+3. Tukar token (di VPS):
+   ```bash
+   curl -X POST https://open.tiktokapis.com/v2/oauth/token/ \
+     -d "client_key=KEY" -d "client_secret=SECRET" \
+     -d "code=CODE" -d "grant_type=authorization_code" \
+     -d "redirect_uri=https://DOMAIN-KAMU/callback-oauth"
+   ```
+4. Simpan (ganti nilai dlm SQL):
+   ```sql
+   INSERT INTO tokens (platform, access_token, refresh_token, expires_at, extra)
+   VALUES ('tiktok', 'ACCESS_TOKEN', 'REFRESH_TOKEN', now() + interval '1 day', '{}')
+   ON CONFLICT (platform) DO UPDATE SET access_token = EXCLUDED.access_token,
+     refresh_token = EXCLUDED.refresh_token, expires_at = EXCLUDED.expires_at;
+   ```
+   (Workflow refresh otomatis tiap 18 jam — setelah ini kamu tidak perlu sentuh.)
+
+### Instagram (long-lived token)
+1. Dapatkan user token dulu (Graph API Explorer / OAuth) dengan scope
+   `instagram_basic,instagram_content_publish,pages_show_list,instagram_manage_insight`.
+   Terakhir = untuk AI analis membaca performa konten (plays/likes/saves) —
+   centang juga **Instagram API → Insights** di dasbor Facebook developers
+   (form app jadi sedikit lebih panjang, tapi tidak ada biaya).
+2. Tukar ke long-lived (60 hari):
+   ```
+   https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=APP_ID&client_secret=APP_SECRET&fb_exchange_token=USER_TOKEN
+   ```
+3. Ambil IG user id (pakai token tsb):
+   ```
+   https://graph.facebook.com/v21.0/me/accounts?access_token=LONGLIVED_TOKEN
+   ```
+   lalu `GET /{page-id}?fields=instagram_business_account&access_token=...`
+4. Simpan:
+   ```sql
+   INSERT INTO tokens (platform, access_token, refresh_token, expires_at, extra)
+   VALUES ('instagram', 'LONGLIVED_TOKEN', '', now() + interval '60 days',
+           '{"ig_user_id": "IG_USER_ID"}')
+   ON CONFLICT (platform) DO UPDATE SET access_token = EXCLUDED.access_token,
+     expires_at = EXCLUDED.expires_at, extra = EXCLUDED.extra;
+   ```
+
+## 6. Seed produk EN (Track B)
+
+Edit `data/seed_en_offers.sample.sql` (ganti URL afiliasi milikmu), lalu masukkan
+ke DB. Langkah ini bisa ditunda — Track ID jalan tanpa ini.
+
+## 7. Uji end-to-end
+
+1. Jalankan manual workflow `01` (Execute Workflow) → cek `SELECT count(*) FROM products;`
+2. Jalankan `02` → harus muncul video preview di Telegram dalam 2–5 menit.
+3. Tap ✅ → jalankan `04` manual → cek TikTok inbox (notifikasi post) + IG feed.
+4. Buka `https://DOMAIN/stats` → KPI terisi (bisa dummy dulu: INSERT 1 baris ke
+   `conversions`) dan `https://DOMAIN/bio` tampil produk.
+5. Jalankan `06` manual → proposal strategi masuk Telegram; tap ✅ → eksekutor
+   (01/02) pakai strategi itu di run berikutnya.
+6. Semua hijau? Biarkan jadwalnya jalan sendiri. Kamu cuma perlu buka Telegram
+   5 menit/hari.
+
+## Troubleshooting cepat
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| edge-tts 403 | versi lama | `pip install -U edge-tts` di dalam container render |
+| TikTok init error `unaudited...` | pakai direct post | pastikan endpoint `/inbox/video/init/` (bukan `/publish/video/init/`) |
+| IG container stuck IN_PROGRESS | video > 60 dtk / transcode lambat | tunggu; kalau timeout, cek `SELECT * FROM posts ORDER BY id DESC` |
+| Render gagal "image fetch" | CDN Shopee blokir | otomatis pakai placeholder; ganti gambar kalau sering |
+| Workflow diam tanpa error | kredensial belum di-attach | buka node bertanda REPLACE_ME, pilih credential |
+| Caddy restart loop di awal | `BASIC_AUTH_HASH` bukan bcrypt | hash ulang dengan `caddy hash-password`; pakai kutip satu di `.env` |
+| `/stats` 401 terus | user/pass salah | cocokkan `STATS_USER` + kata sandi yang di-hash (bukan hash-nya) |
