@@ -4,6 +4,7 @@
     {
       "parameters": {
         "updates": [
+          "message",
           "callback_query"
         ],
         "additionalFields": {}
@@ -22,13 +23,179 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.message }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000007",
+      "name": "Is Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mode manual-seed: /produk <url_afiliasi> <harga> <judul...>\n// route: 'skip' = bukan /produk atau bukan pemilik (diam)\n//        'help' = pemilik, format salah\n//        'seed' = pemilik, format benar\nconst msg = $json.message || {};\nconst chatId = String((msg.chat && msg.chat.id) || '');\nconst text = (msg.text || '').trim();\nconst owner = String($env.TELEGRAM_CHAT_ID || '');\nconst authorized = chatId === owner && owner !== '';\n\nif (!text.startsWith('/produk')) {\n  return { json: { route: 'skip' } };\n}\n\nconst parts = text.split(/\\s+/);\nconst url = parts[1] || '';\nconst price = parseInt(parts[2], 10);\nconst title = parts.slice(3).join(' ').trim();\nconst valid = /^https?:\\/\\//.test(url) && Number.isFinite(price) && price > 0 && title.length >= 3;\n\nif (!authorized) {\n  return { json: { route: 'skip' } };\n}\n\nreturn {\n  json: {\n    route: valid ? 'seed' : 'help',\n    chat_id: chatId,\n    message_id: msg.message_id || 0,\n    url,\n    price: Number.isFinite(price) ? price : null,\n    title,\n    help: 'Format: /produk <url_afiliasi> <harga> <judul>\\nContoh:\\n/produk https://shopee.co.id/xxx 150000 Power Bank 20000mAh'\n  }\n};"
+      },
+      "id": "a3000001-0000-4000-8000-000000000008",
+      "name": "Parse Product Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "seed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-000000000009",
+      "name": "Should Seed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [660, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "help",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-00000000000a",
+      "name": "Should Help?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO products (source, ext_id, track, title, offer_url, price_min, status, score)\nVALUES ('manual', md5($1), 'id', $2, $1, $3, 'new', 75)\nON CONFLICT (source, ext_id)\nDO UPDATE SET\n  title = EXCLUDED.title,\n  offer_url = EXCLUDED.offer_url,\n  price_min = COALESCE(EXCLUDED.price_min, products.price_min),\n  updated_at = now()\nRETURNING id, title, offer_url, price_min;",
+        "options": {
+          "queryReplacement": "={{ [ $json.url, $json.title, $json.price ] }}"
+        }
+      },
+      "id": "a3000001-0000-4000-8000-00000000000b",
+      "name": "Insert Product",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [880, 40],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Parse Product Command').item.json.chat_id, text: '✅ Produk masuk kurasi: ' + $json.title + ' (Rp' + $json.price_min + ') — otomatis masuk antrean render.' }) }}",
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-00000000000c",
+      "name": "Reply Seeded",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Parse Product Command').item.json.chat_id, text: $('Parse Product Command').item.json.help }) }}",
+        "options": {}
+      },
+      "id": "a3000001-0000-4000-8000-00000000000d",
+      "name": "Reply Help",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
         "jsCode": "// Parse callback: \"approve:<id>\" / \"reject:<id>\" (naskah) dan\n// \"strategy:<id>\" / \"strategy-discard:<id>\" (analitik) — hanya pemilik chat yang sah.\nconst cq = $json.callback_query || {};\nconst data = cq.data || '';\nconst chatId = String((cq.from && cq.from.id) || '');\nconst m = data.match(/^(approve|reject):(\\d+)$/);\nconst ms = data.match(/^strategy(-discard)?:(\\d+)$/);\nconst owner = String($env.TELEGRAM_CHAT_ID || '');\nconst authorized = (!!m || !!ms) && chatId === owner;\nreturn {\n  json: {\n    callback_id: cq.id,\n    kind: m ? 'script' : (ms ? 'strategy' : null),\n    action: m ? m[1] : (ms ? (ms[1] ? 'strategy-discard' : 'strategy') : null),\n    script_id: m ? Number(m[2]) : null,\n    strategy_id: ms ? Number(ms[2]) : null,\n    authorized,\n    requester: chatId\n  }\n};"
       },
       "id": "a3000001-0000-4000-8000-000000000002",
       "name": "Parse Callback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [440, -120]
     },
     {
       "parameters": {
@@ -58,7 +225,7 @@
       "name": "Owner?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 0]
+      "position": [660, -120]
     },
     {
       "parameters": {
@@ -87,7 +254,7 @@
       "name": "Is Strategy?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [560, -40]
+      "position": [880, -200]
     },
     {
       "parameters": {
@@ -116,7 +283,7 @@
       "name": "Activate?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [780, -40]
+      "position": [1100, -280]
     },
     {
       "parameters": {
@@ -130,7 +297,7 @@
       "name": "Activate Strategy",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1000, -160],
+      "position": [1320, -400],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -150,7 +317,7 @@
       "name": "Discard Strategy",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1000, 80],
+      "position": [1320, -160],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -180,7 +347,7 @@
       "name": "Ack Strategy",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1220, -40]
+      "position": [1540, -280]
     },
     {
       "parameters": {
@@ -194,7 +361,7 @@
       "name": "Update Status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [660, -80],
+      "position": [1100, -120],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -224,7 +391,7 @@
       "name": "Ack Approved",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, -80]
+      "position": [1320, -120]
     },
     {
       "parameters": {
@@ -248,7 +415,7 @@
       "name": "Ack Unauthorized",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 120]
+      "position": [880, -40]
     }
   ],
   "connections": {
@@ -256,7 +423,76 @@
       "main": [
         [
           {
+            "node": "Is Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Message?": {
+      "main": [
+        [
+          {
+            "node": "Parse Product Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Product Command": {
+      "main": [
+        [
+          {
+            "node": "Should Seed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Seed?": {
+      "main": [
+        [
+          {
+            "node": "Insert Product",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Should Help?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Help?": {
+      "main": [
+        [
+          {
+            "node": "Reply Help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Product": {
+      "main": [
+        [
+          {
+            "node": "Reply Seeded",
             "type": "main",
             "index": 0
           }

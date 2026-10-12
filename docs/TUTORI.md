@@ -88,6 +88,24 @@ Cek duit di: `https://domain-kamu/stats` (password) → kartu *Income hari ini /
 4. **Sesekali** — buka `https://domain-kamu/stats` untuk gambaran besar.
 5. **Tiap hari yang sama** — tap *Post* di app TikTok untuk antrian inbox.
 
+### Tambah produk manual (karena Shopee API belum dibuka)
+
+Kalau kamu nemu produk bagus di Shopee tapi API-nya belum aktif, kirim langsung ke bot:
+
+```
+/produk <url_afiliasi> <harga> <judul>
+```
+
+Contoh:
+```
+/produk https://shopee.co.id/product/12345/67890 150000 Power Bank 20000mAh Fast Charging
+```
+
+- Bot langsung masukin ke kurasi (status `new`, skor 75) — render berikutnya otomatis pakai.
+- URL yang sama dikirim ulang → data diperbarui, tidak duplikat.
+- Format salah → bot balas cara pakai yang benar.
+- Hanya pemilik bot (chat ID kamu) yang bisa tambah produk; pesan lain diabaikan.
+
 Tidak ada lagi yang perlu dikerjakan manual. Kalau kamu libur sehari pun:
 antrian menunggu, IG tetap tayang, laporan tetap jalan.
 
