@@ -52,6 +52,7 @@ def fetch_stats():
             SELECT
               COALESCE(SUM(commission) FILTER (WHERE ts >= date_trunc('day', now())), 0) AS income_today,
               COALESCE(SUM(commission) FILTER (WHERE ts >= now() - interval '7 days'), 0) AS income_7d,
+              COALESCE(SUM(commission) FILTER (WHERE ts >= now() - interval '14 days' AND ts < now() - interval '7 days'), 0) AS income_prev_7d,
               COALESCE(SUM(commission) FILTER (WHERE ts >= now() - interval '30 days'), 0) AS income_30d,
               COUNT(*) FILTER (WHERE ts >= now() - interval '30 days') AS orders_30d,
               COUNT(*) FILTER (WHERE ts >= date_trunc('day', now())) AS orders_today
@@ -211,6 +212,24 @@ def fetch_stats():
             "approved_at": _iso(row["approved_at"]) if row else None,
         }
 
+        # ---- Riwayat strategi (8 versi terakhir) ----
+        cur.execute(
+            """
+            SELECT version, health_score, active, approved_at, created_at
+            FROM strategy ORDER BY version DESC LIMIT 8
+            """
+        )
+        out["strategy_history"] = [
+            {
+                "version": int(r["version"]),
+                "health": _num(r["health_score"]) if r["health_score"] is not None else None,
+                "active": bool(r["active"]),
+                "approved_at": _iso(r["approved_at"]),
+                "created_at": _iso(r["created_at"]),
+            }
+            for r in cur.fetchall()
+        ]
+
     out["kpi"] = {k: (_num(v) if k != "last_activity" else _iso(v)) for k, v in kpi.items()}
     for k in ("posts_today", "queue_approval", "orders_30d", "orders_today"):
         out["kpi"][k] = int(_num(out["kpi"].get(k)))
@@ -268,7 +287,7 @@ STATS_HTML = """<!DOCTYPE html>
   .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
   .kpi .l { color:var(--mut); font-size:12px; }
   .kpi .v { font-size:22px; font-weight:700; margin-top:2px; }
-  .kpi .v.green { color:var(--up); } .kpi .v.blue { color:var(--acc); }
+  .kpi .v.green { color:var(--up); } .kpi .v.blue { color:var(--acc); } .kpi .v.red { color:var(--down); }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
   @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
@@ -329,9 +348,16 @@ const KPI_DEFS = [
 ];
 
 function renderKpis(k){
-  document.getElementById('kpis').innerHTML = KPI_DEFS.map(([key,label,cls,fmtf]) =>
-    `<div class="kpi"><div class="l">${label}</div><div class="v ${cls}">${fmtf(Number(k[key]||0))}</div></div>`
-  ).join('');
+  const prev = Number(k.income_prev_7d || 0);
+  const now7 = Number(k.income_7d || 0);
+  const delta = prev > 0 ? Math.round(100 * (now7 - prev) / prev) : null;
+  const deltaHtml = delta === null ? '-'
+    : `<div class="l">vs minggu lalu</div><div class="v ${delta >= 0 ? 'green' : 'red'}" style="font-size:15px">${delta >= 0 ? '+' : ''}${delta}%</div>`;
+  document.getElementById('kpis').innerHTML =
+    KPI_DEFS.map(([key,label,cls,fmtf]) =>
+      `<div class="kpi"><div class="l">${label}</div><div class="v ${cls}">${fmtf(Number(k[key]||0))}</div></div>`
+    ).join('') +
+    `<div class="kpi">${deltaHtml}</div>`;
 }
 
 function mkChart(id, cfg){
@@ -417,7 +443,12 @@ function renderTables(d){
       <tr><th>Health score</th><td>${s.health!=null?s.health.toFixed(0):'-'}</td></tr>
       <tr><th>Disetujui</th><td>${fmt(s.approved_at)}</td></tr>
     </tbody></table>
-    <div class="empty" style="margin-top:8px">Strategi dijalankan AI analis mingguan; kamu approve via Telegram.</div>`;
+    <h2 style="margin-top:12px">Riwayat strategi</h2>` +
+    table(d.strategy_history || [], [
+      { h:'v', num:true, f:r=>'v'+r.version },
+      { h:'Health', num:true, f:r:r.health!=null?r.health.toFixed(0):'-' },
+      { h:'Status', f:r=>`<span class="badge ${r.active?'ok':''}">${r.active?'aktif':'arsip'}</span>` },
+      { h:'Disetujui', f:r=>fmt(r.approved_at) } ]);
 }
 
 async function load(){

@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "days",
-              "daysInterval": 7
+              "daysInterval": 1
             }
           ]
         }
       },
       "id": "a6000001-0000-4000-8000-000000000001",
-      "name": "Weekly Analyst",
+      "name": "Daily Analyst",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [0, 0]
@@ -84,7 +84,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT json_build_object(\n  'funnel', (SELECT json_agg(x) FROM (SELECT status, COUNT(*)::int AS n FROM scripts GROUP BY status) x),\n  'income_7d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '7 days'),\n  'income_30d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '30 days'),\n  'orders_7d', (SELECT COUNT(*)::int FROM conversions WHERE ts >= now() - interval '7 days'),\n  'posts_7d', (SELECT COUNT(*)::int FROM posts WHERE posted_at >= now() - interval '7 days'),\n  'posts_by_platform', (SELECT json_agg(x) FROM (SELECT platform, COUNT(*)::int AS n FROM posts WHERE posted_at >= now() - interval '7 days' GROUP BY platform) x),\n  'avg_score_7d', (SELECT ROUND(AVG(ai_score),1) FROM scripts WHERE ai_score IS NOT NULL AND updated_at >= now() - interval '7 days'),\n  'drop_rate_pct', (SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('dropped','failed')) / COUNT(*), 1) END FROM scripts),\n  'post_metrics', (SELECT json_agg(x) FROM (SELECT s.track, pm.likes, pm.comments, pm.plays, pm.saves, pm.shares, p.posted_at FROM post_metrics pm JOIN posts p ON p.id = pm.post_id JOIN scripts s ON s.id = p.script_id WHERE pm.fetched_at >= now() - interval '7 days' ORDER BY pm.fetched_at DESC LIMIT 30) x),\n  'active_strategy', (SELECT json_build_object('version', version, 'changes', changes, 'health', health_score) FROM strategy WHERE active = true ORDER BY id DESC LIMIT 1),\n  'top_products', (SELECT json_agg(x) FROM (SELECT title, score, status FROM products ORDER BY score DESC LIMIT 5) x)\n) AS metrics;",
+        "query": "SELECT json_build_object(\n  'funnel', (SELECT json_agg(x) FROM (SELECT status, COUNT(*)::int AS n FROM scripts GROUP BY status) x),\n  'income_7d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '7 days'),\n  'income_prev_7d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '14 days' AND ts < now() - interval '7 days'),\n  'income_30d', (SELECT COALESCE(SUM(commission),0) FROM conversions WHERE ts >= now() - interval '30 days'),\n  'orders_7d', (SELECT COUNT(*)::int FROM conversions WHERE ts >= now() - interval '7 days'),\n  'orders_prev_7d', (SELECT COUNT(*)::int FROM conversions WHERE ts >= now() - interval '14 days' AND ts < now() - interval '7 days'),\n  'aov_7d', (SELECT COALESCE(ROUND(AVG(commission),0),0) FROM conversions WHERE ts >= now() - interval '7 days'),\n  'posts_7d', (SELECT COUNT(*)::int FROM posts WHERE posted_at >= now() - interval '7 days'),\n  'posts_by_platform', (SELECT json_agg(x) FROM (SELECT platform, COUNT(*)::int AS n FROM posts WHERE posted_at >= now() - interval '7 days' GROUP BY platform) x),\n  'avg_score_7d', (SELECT COALESCE(ROUND(AVG(ai_score),1),0) FROM scripts WHERE ai_score IS NOT NULL AND updated_at >= now() - interval '7 days'),\n  'approval_rate_7d', (SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('rendered','approved','posted')) / COUNT(*), 1) END FROM scripts WHERE created_at >= now() - interval '7 days'),\n  'drop_rate_7d', (SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('dropped','failed')) / COUNT(*), 1) END FROM scripts WHERE created_at >= now() - interval '7 days'),\n  'income_daily_14d', (SELECT COALESCE(json_agg(x ORDER BY d), '[]'::json) FROM (SELECT to_char(date_trunc('day', ts),'YYYY-MM-DD') AS d, COALESCE(SUM(commission),0) AS v, COUNT(*)::int AS orders FROM conversions WHERE ts >= now() - interval '14 days' GROUP BY 1) x),\n  'content_performance', (SELECT COALESCE(json_agg(x), '[]'::json) FROM (SELECT s.track, s.ai_score, EXTRACT(hour FROM p.posted_at)::int AS hour_post, p.platform, p.status, COALESCE(pm.plays,0) AS plays, COALESCE(pm.likes,0) AS likes, COALESCE(pm.comments,0) AS comments, COALESCE(pm.saves,0) AS saves, COALESCE(pm.shares,0) AS shares FROM posts p JOIN scripts s ON s.id = p.script_id LEFT JOIN post_metrics pm ON pm.post_id = p.id WHERE p.posted_at >= now() - interval '21 days' ORDER BY p.posted_at DESC LIMIT 20) x),\n  'active_strategy', (SELECT json_build_object('version', version, 'changes', changes, 'health', health_score) FROM strategy WHERE active = true ORDER BY id DESC LIMIT 1),\n  'top_products', (SELECT json_agg(x) FROM (SELECT title, score, status FROM products ORDER BY score DESC LIMIT 5) x)\n) AS metrics;",
         "options": {}
       },
       "id": "a6000001-0000-4000-8000-000000000006",
@@ -101,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Susun permintaan LLM untuk AI strategist (mingguan).\nconst raw = $json.metrics || {};\nconst metrics = typeof raw === 'string' ? JSON.parse(raw) : raw;\n\nconst system = 'You are a pragmatic growth strategist for short-form affiliate channels (TikTok + Instagram Reels). You analyze real weekly metrics and propose concrete, conservative changes. Output STRICT JSON only.';\n\nconst user = `Analisis data mingguan pipeline invest-nyawit dan usulkan strategi baru.\n\nDATA (7 hari terakhir):\n${JSON.stringify(metrics)}\n\nKeluarkan HANYA JSON dengan skema:\n{\n  \"analysis\": \"ringkasan analisis 2-4 kalimat (apa yang naik/turun dan mengapa)\",\n  \"keep\": [\"elemen strategi yang terbukti & dipertahankan\"],\n  \"stop\": [\"yang harus dihentikan/diubah\"],\n  \"changes\": {\n    \"keywords_id\": [\"5-8 kata kunci produk Shopee, impulse-buy 15rb-150rb\"],\n    \"hook_style\": \"gaya hook unggulan, maks 8 kata\",\n    \"tone\": \"nada penulisan singkat\",\n    \"min_score\": 70,\n    \"quota\": { \"id\": 3, \"en\": 2 }\n  },\n  \"hypotheses\": [\"1-2 uji A/B konkret\"],\n  \"health\": 75\n}\n\nAturan:\n- min_score 50-95; quota.id 0-6; quota.en 0-4; health 0-100 (angka).\n- Jangan mengarang metrik yang tidak ada di DATA.\n- Jika data kosong/sangat sedikit, buat perubahan kecil dan sebutkan alasannya.`;\n\nreturn {\n  json: {\n    endpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    auth: 'Bearer ' + ($env.LLM_API_KEY || ''),\n    request: {\n      model: $env.LLM_MODEL,\n      temperature: 0.3,\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: user }\n      ]\n    }\n  }\n};"
+        "jsCode": "// Susun permintaan LLM — AI analis harian dengan mindset operator bisnis.\nconst raw = $json.metrics || {};\nconst metrics = typeof raw === 'string' ? JSON.parse(raw) : raw;\nconst hariIni = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Jakarta' });\n\nconst system = `Kamu otak analitik bisnis afiliasi media pendek (TikTok + IG Reels; Shopee ID + SaaS EN).\nBerpikirlah seperti investor-operand mandiri yang membangun dari nol: data dulu, ego belakangan.\nPrinsip:\n1. Diagnosis sebelum resep — sebut metrik yang bergerak + penyebab paling mungkin dari DATA.\n2. Saat pendapatan turun, JANGAN ubah semua hal — potong kerugian terbesar, gandakan pemenang terbukti (Pareto 80/20).\n3. Uji kecil, umpan balik cepat, scale yang menang.\n4. Setiap perubahan butuh dampak yang diharapkan + cara memverifikasi minggu depan.\n5. Jujur — kalau data terlalu tipis, bilang begitu dan sarankan kesabaran + uji kecil.\nKeluaran HANYA JSON ketat.`;\n\nconst user = `Hari ini: ${hariIni}. Data pipeline invest-nyawit.\n\nDATA:\n${JSON.stringify(metrics)}\n\nAturan keputusan:\n- income_7d turun >= 25% vs income_prev_7d, ATAU drop_rate_7d >= 40% → severity=\\\"decline\\\", analisis penuh WAJIB (diagnosis akar masalah dari data: platform mana, jam berapa, produk mana, CR/AOV).\n- ${hariIni === 'Sunday' ? 'Hari ini Minggu → ulasan mingguan penuh, severity=\\\"weekly\\\".' : 'Kalau tidak ada penurunan berarti → skip=true (tidak usul apa-apa, jangan spam owner).'}\n- Jangan mengarang metrik yang tidak ada di DATA.\n\nKeluarkan HANYA JSON dengan skema:\n{\n  \\\"skip\\\": false,\n  \\\"severity\\\": \\\"weekly\\\",\n  \\\"analysis\\\": \\\"ringkasan 2-4 kalimat: apa naik/turun dan mengapa (berbasis angka)\\\",\n  \\\"diagnosis\\\": \\\"akar masalah dari data (kosongkan kalau tidak ada masalah)\\\",\n  \\\"keep\\\": [\\\"elemen terbukti yang dipertahankan\\\"],\n  \\\"stop\\\": [\\\"yang dihentikan/diubah\\\"],\n  \\\"changes\\\": {\n    \\\"keywords_id\\\": [\\\"5-8 kata kunci produk Shopee, impulse-buy 15rb-150rb\\\"],\n    \\\"hook_style\\\": \\\"gaya hook unggulan, maks 8 kata\\\",\n    \\\"tone\\\": \\\"nada penulisan singkat\\\",\n    \\\"min_score\\\": 70,\n    \\\"quota\\\": { \\\"id\\\": 3, \\\"en\\\": 2 }\n  },\n  \\\"hypotheses\\\": [\\\"uji A/B konkret + cara verifikasi\\\"],\n  \\\"expected_impact\\\": \\\"perkiraan dampak dalam angka/bulan\\\",\n  \\\"health\\\": 75\n}\n\nAturan angka: min_score 50-95; quota.id 0-6; quota.en 0-4; health 0-100.`;\n\nreturn {\n  json: {\n    endpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    auth: 'Bearer ' + ($env.LLM_API_KEY || ''),\n    request: {\n      model: $env.LLM_MODEL,\n      temperature: 0.3,\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: user }\n      ]\n    }\n  }\n};"
       },
       "id": "a6000001-0000-4000-8000-000000000007",
       "name": "Build Analyst Request",
@@ -141,13 +141,44 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse + clamp hasil analis. Output = kandidat strategi (belum aktif).\nlet content = ($json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content) || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('LLM analis tidak menghasilkan JSON: ' + content.slice(0, 300));\nconst s = JSON.parse(m[0]);\n\nconst clamp = (v, lo, hi, dflt) => {\n  const n = Number(v);\n  if (!Number.isFinite(n)) return dflt;\n  return Math.min(hi, Math.max(lo, n));\n};\nconst strArr = (a, max) => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean).slice(0, max) : []);\n\nconst c = (s.changes && typeof s.changes === 'object') ? s.changes : {};\nconst q = (c.quota && typeof c.quota === 'object') ? c.quota : {};\nconst changes = {\n  keywords_id: strArr(c.keywords_id, 12),\n  hook_style: String(c.hook_style || '').slice(0, 80),\n  tone: String(c.tone || '').slice(0, 120),\n  min_score: clamp(c.min_score, 50, 95, Number($env.AI_GATE_MIN || 70)),\n  quota: {\n    id: clamp(q.id, 0, 6, Number($env.POSTS_PER_DAY_ID || 3)),\n    en: clamp(q.en, 0, 4, Number($env.POSTS_PER_DAY_EN || 2))\n  }\n};\nreturn {\n  json: {\n    analysis: String(s.analysis || '').slice(0, 1500),\n    keep: strArr(s.keep, 10),\n    stop: strArr(s.stop, 10),\n    changes,\n    hypotheses: strArr(s.hypotheses, 5),\n    health: clamp(s.health, 0, 100, 50)\n  }\n};"
+        "jsCode": "// Parse + clamp hasil analis. skip=true → tidak usul apa-apa (sehat).\nlet content = ($json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content) || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nif (!m) throw new Error('LLM analis tidak menghasilkan JSON: ' + content.slice(0, 300));\nconst s = JSON.parse(m[0]);\n\nif (s.skip === true) {\n  return { json: { skip: true } };\n}\n\nconst clamp = (v, lo, hi, dflt) => {\n  const n = Number(v);\n  if (!Number.isFinite(n)) return dflt;\n  return Math.min(hi, Math.max(lo, n));\n};\nconst strArr = (a, max) => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean).slice(0, max) : []);\n\nconst c = (s.changes && typeof s.changes === 'object') ? s.changes : {};\nconst q = (c.quota && typeof c.quota === 'object') ? c.quota : {};\nconst changes = {\n  keywords_id: strArr(c.keywords_id, 12),\n  hook_style: String(c.hook_style || '').slice(0, 80),\n  tone: String(c.tone || '').slice(0, 120),\n  min_score: clamp(c.min_score, 50, 95, Number($env.AI_GATE_MIN || 70)),\n  quota: {\n    id: clamp(q.id, 0, 6, Number($env.POSTS_PER_DAY_ID || 3)),\n    en: clamp(q.en, 0, 4, Number($env.POSTS_PER_DAY_EN || 2))\n  }\n};\nconst diagnosis = String(s.diagnosis || '').slice(0, 800);\nconst expected = String(s.expected_impact || '').slice(0, 400);\nlet analysis = String(s.analysis || '').slice(0, 1500);\nif (diagnosis) analysis += '\\nDIAGNOSA: ' + diagnosis;\nif (expected) analysis += '\\nDAMPAK DIHARAPKAN: ' + expected;\nconst severity = ['decline', 'weekly', 'normal'].includes(String(s.severity || '').toLowerCase())\n  ? String(s.severity || '').toLowerCase() : 'weekly';\nreturn {\n  json: {\n    skip: false,\n    severity,\n    analysis,\n    diagnosis,\n    expected_impact: expected,\n    keep: strArr(s.keep, 10),\n    stop: strArr(s.stop, 10),\n    changes,\n    hypotheses: strArr(s.hypotheses, 5),\n    health: clamp(s.health, 0, 100, 50)\n  }\n};"
       },
       "id": "a6000001-0000-4000-8000-000000000009",
       "name": "Parse Strategy",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2.2
+          },
+          "conditions": [
+            {
+              "id": "a6000001-0000-4000-8000-000000000012",
+              "leftValue": "={{ $json.skip === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a6000001-0000-4000-8000-000000000013",
+      "name": "Analyst Skipped?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1870, 0]
     },
     {
       "parameters": {
@@ -184,7 +215,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '🧠 AI Analis — Strategi v' + $('Insert Strategy').item.json.version + ' (belum aktif)\\n\\n' + ($('Parse Strategy').item.json.analysis || '') + '\\n\\nHealth: ' + $('Parse Strategy').item.json.health + '/100\\nQuota: ID ' + $('Parse Strategy').item.json.changes.quota.id + '/hari · EN ' + $('Parse Strategy').item.json.changes.quota.en + '/hari\\nHook: ' + ($('Parse Strategy').item.json.changes.hook_style || '-') + '\\nKeep: ' + ($('Parse Strategy').item.json.keep.join(', ') || '-') + '\\nStop: ' + ($('Parse Strategy').item.json.stop.join(', ') || '-') + '\\n\\nStrategi baru hanya aktif setelah kamu tap di bawah.', reply_markup: { inline_keyboard: [[{ text: '✅ Pakai strategi ini', callback_data: 'strategy:' + $('Insert Strategy').item.json.id }, { text: '❌ Buang', callback_data: 'strategy-discard:' + $('Insert Strategy').item.json.id }]] } }) }}",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: (($('Parse Strategy').item.json.severity === 'decline') ? '🚨 AI Analis — PENURUNAN TERDETEKSI\\n' : '🧠 AI Analis — Strategi v' + $('Insert Strategy').item.json.version + ' (belum aktif)\\n\\n') + ($('Parse Strategy').item.json.analysis || '') + (($('Parse Strategy').item.json.diagnosis) ? '\\n\\n🔎 Diagnosis: ' + $('Parse Strategy').item.json.diagnosis : '') + (($('Parse Strategy').item.json.expected_impact) ? '\\n📈 Dampak diharapkan: ' + $('Parse Strategy').item.json.expected_impact : '') + '\\n\\nHealth: ' + $('Parse Strategy').item.json.health + '/100\\nQuota: ID ' + $('Parse Strategy').item.json.changes.quota.id + '/hari · EN ' + $('Parse Strategy').item.json.changes.quota.en + '/hari\\nHook: ' + ($('Parse Strategy').item.json.changes.hook_style || '-') + '\\nKeep: ' + (($('Parse Strategy').item.json.keep || []).join(', ') || '-') + '\\nStop: ' + (($('Parse Strategy').item.json.stop || []).join(', ') || '-') + (($('Parse Strategy').item.json.hypotheses && $('Parse Strategy').item.json.hypotheses.length) ? '\\n\\n🧪 Uji: ' + $('Parse Strategy').item.json.hypotheses.join(' | ') : '') + '\\n\\nStrategi baru hanya aktif setelah kamu tap di bawah.', reply_markup: { inline_keyboard: [[{ text: '✅ Pakai strategi ini', callback_data: 'strategy:' + $('Insert Strategy').item.json.id }, { text: '❌ Buang', callback_data: 'strategy-discard:' + $('Insert Strategy').item.json.id }]] } }) }}",
         "options": {
           "timeout": 30000
         }
@@ -198,7 +229,7 @@
     }
   ],
   "connections": {
-    "Weekly Analyst": {
+    "Daily Analyst": {
       "main": [
         [
           {
@@ -288,6 +319,18 @@
     },
     "Parse Strategy": {
       "main": [
+        [
+          {
+            "node": "Analyst Skipped?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyst Skipped?": {
+      "main": [
+        [],
         [
           {
             "node": "Insert Strategy",

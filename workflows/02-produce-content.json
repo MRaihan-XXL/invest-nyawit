@@ -7,7 +7,7 @@
           "interval": [
             {
               "field": "hours",
-              "hoursInterval": 6
+              "hours": [7, 12, 19, 21]
             }
           ]
         }

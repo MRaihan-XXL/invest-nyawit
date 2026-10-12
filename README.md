@@ -3,6 +3,9 @@
 Pabrik konten afiliasi otomatis 24/7 — AI bikin video, AI nilai sendiri, kamu cuma
 approve lewat Telegram, sistem yang tayang ke TikTok (mode inbox) + Instagram Reels.
 
+> **Baru mulai?** Baca [`docs/TUTORI.md`](docs/TUTORI.md) — tutorial lengkap nol → duit
+> (produknya apa, jam berapa upload, rutinitas harian, cara cek penghasilan).
+
 ```
 Shopee Affiliate API ──┐
                        ▼
@@ -16,7 +19,7 @@ Shopee Affiliate API ──┐
                        ▼
               [05] tarik komisi HARIAN → laporan mingguan ke Telegram
                        ▼
-              [06] AI analis mingguan → usul strategi baru → kamu approve
+               [06] AI analis HARIAN adaptif → deteksi penurunan → diagnosis → usul strategi → kamu approve
                        │
                        └──► eksekutor (01/02) patuh strategi aktif
                        
@@ -34,6 +37,7 @@ Shopee Affiliate API ──┐
 | `workflows/` | 6 workflow n8n — import ke dashboard setelah deploy |
 | `data/schema.sql` | skema DB (auto-load saat compose pertama jalan) |
 | `data/seed_en_offers.sample.sql` | contoh seed produk afiliasi EN |
+| `docs/TUTORI.md` | **tutorial lengkap nol → duit**: produk, jam tayang, rutinitas harian |
 | `docs/SETUP.md` | **baca ini** — langkah daftar Oracle/TikTok/Shopee/IG/Telegram |
 | `docs/NICHE.md` | strategi niche dual-track ID + EN |
 | `docs/demo/` | bukti render asli: `demo01.mp4` (16,7 dtk) + 2 frame |
