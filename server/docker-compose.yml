@@ -101,6 +101,14 @@ services:
     depends_on:
       - postgres
 
+  trend_scout:
+    build: ../services/trend_scout
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8092:8092"
+    environment:
+      - DASHBOARD_URL=http://dashboard:8091
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

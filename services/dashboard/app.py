@@ -237,6 +237,142 @@ def fetch_stats():
     return out
 
 
+def fetch_trends():
+    """Ambil tren terbaru per sumber untuk dashboard."""
+    with _conn() as conn, conn.cursor() as cur:
+        # Top trends per sumber (12 jam terakhir)
+        cur.execute(
+            """
+            SELECT source, keyword, region, volume, rank, captured_at
+            FROM trends
+            WHERE captured_at >= now() - interval '12 hours'
+            ORDER BY source, rank ASC
+            """
+        )
+        by_source = {}
+        for r in cur.fetchall():
+            s = r["source"]
+            by_source.setdefault(s, [])
+            if len(by_source[s]) < 15:
+                by_source[s].append({
+                    "keyword": r["keyword"],
+                    "region": r["region"],
+                    "volume": int(r["volume"]) if r["volume"] else None,
+                    "rank": int(r["rank"]),
+                    "captured_at": _iso(r["captured_at"]),
+                })
+
+        # Produk yang kena boost tren
+        cur.execute(
+            """
+            SELECT p.title, p.score, tb.boost, t.keyword, t.source
+            FROM trend_boosts tb
+            JOIN products p ON p.id = tb.product_id
+            JOIN trends t ON t.id = tb.trend_id
+            WHERE tb.matched_at >= now() - interval '12 hours'
+            ORDER BY tb.boost DESC, p.score DESC
+            LIMIT 15
+            """
+        )
+        boosted = [
+            {
+                "title": (r["title"] or "")[:60],
+                "score": _num(r["score"]),
+                "boost": _num(r["boost"]),
+                "keyword": r["keyword"],
+                "source": r["source"],
+            }
+            for r in cur.fetchall()
+        ]
+
+        # Ringkasan: total tren aktif per sumber
+        cur.execute(
+            """
+            SELECT source, COUNT(*) AS n, MAX(captured_at) AS last
+            FROM trends
+            WHERE captured_at >= now() - interval '12 hours'
+            GROUP BY source ORDER BY n DESC
+            """
+        )
+        summary = [
+            {"source": r["source"], "count": int(r["n"]), "last": _iso(r["last"])}
+            for r in cur.fetchall()
+        ]
+
+    return {"by_source": by_source, "boosted_products": boosted, "summary": summary}
+
+
+def ingest_trends(trends: list[dict]) -> dict:
+    """Insert batch tren ke DB. Dipanggil oleh trend_scout via POST."""
+    if not trends:
+        return {"ok": True, "inserted": 0}
+    with _conn() as conn, conn.cursor() as cur:
+        inserted = 0
+        for t in trends:
+            cur.execute(
+                """
+                INSERT INTO trends (source, keyword, region, volume, rank, category)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    t.get("source", "unknown"),
+                    t.get("keyword", "")[:200],
+                    t.get("region", "id"),
+                    t.get("volume"),
+                    t.get("rank"),
+                    t.get("category"),
+                ),
+            )
+            inserted += 1
+        # Bersihkan tren lama (> 7 hari)
+        cur.execute("DELETE FROM trends WHERE captured_at < now() - interval '7 days'")
+    return {"ok": True, "inserted": inserted}
+
+
+def score_products_from_trends() -> dict:
+    """Update skor produk berdasarkan tren aktif (12 jam terakhir).
+
+    Produk yang judulnya match keyword tren aktif dapat boost skor.
+    Boost = min(20, jumlah match * 5), dibatasi agar skor tidak meledak.
+    """
+    with _conn() as conn, conn.cursor() as cur:
+        # Hapus boost lama
+        cur.execute("DELETE FROM trend_boosts")
+
+        # Match produk dengan tren aktif (keyword muncul di judul produk, case-insensitive)
+        cur.execute(
+            """
+            INSERT INTO trend_boosts (product_id, trend_id, boost)
+            SELECT DISTINCT p.id, t.id,
+                   LEAST(20, 5 * (SELECT COUNT(*) FROM trends t2
+                                  WHERE t2.keyword ILIKE '%' || p.title || '%'
+                                    AND t2.captured_at >= now() - interval '12 hours'))
+            FROM products p
+            JOIN trends t ON p.title ILIKE '%' || t.keyword || '%'
+            WHERE t.captured_at >= now() - interval '12 hours'
+              AND p.status <> 'exhausted'
+              AND LENGTH(t.keyword) >= 3
+            ON CONFLICT (product_id, trend_id) DO NOTHING
+            """
+        )
+        boosted = cur.rowcount
+
+        # Update skor produk: skor = skor_asli + total_boost
+        cur.execute(
+            """
+            UPDATE products p
+            SET score = LEAST(100, p.score + COALESCE((
+                    SELECT SUM(tb.boost) FROM trend_boosts tb WHERE tb.product_id = p.id
+                ), 0)),
+                updated_at = now()
+            WHERE p.id IN (SELECT DISTINCT product_id FROM trend_boosts)
+            """
+        )
+        updated = cur.rowcount
+
+    return {"ok": True, "boosted": boosted, "updated": updated}
+
+
 def fetch_bio_products():
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -320,6 +456,8 @@ STATS_HTML = """<!DOCTYPE html>
     <div class="card"><h2>Track ID vs EN (post 30 hari)</h2><canvas id="cTracks"></canvas></div>
     <div class="card"><h2>Strategi aktif</h2><div id="strat"></div></div>
 
+    <div class="card wide"><h2>🔥 Tren Pasar (update tiap 3 jam)</h2><div id="tTrends"></div></div>
+    <div class="card wide"><h2>🚀 Produk Boost Tren</h2><div id="tBoost"></div></div>
     <div class="card wide"><h2>10 post terakhir</h2><div id="tPosts"></div></div>
     <div class="card"><h2>Konversi terakhir</h2><div id="tConv"></div></div>
     <div class="card"><h2>Top produk (skor kurasi)</h2><div id="tProd"></div></div>
@@ -411,6 +549,44 @@ function table(rows, cols){
 }
 
 function renderTables(d){
+  // Tren pasar
+  const tr = d.trends || { by_source: {}, boosted_products: [], summary: [] };
+  const SRC_LABEL = { google:'🔍 Google', tiktok:'🎵 TikTok', shopee:'🛍 Shopee', tokopedia:'🛒 Tokopedia' };
+  let trendHtml = '';
+  if (tr.summary && tr.summary.length) {
+    trendHtml += '<div style="margin-bottom:10px">' + tr.summary.map(s =>
+      `<span class="badge" style="margin-right:6px">${SRC_LABEL[s.source]||s.source}: ${s.count} keywords</span>`
+    ).join('') + '</div>';
+  }
+  const sources = Object.keys(tr.by_source || {});
+  if (sources.length) {
+    trendHtml += '<table><thead><tr><th>Sumber</th><th>#</th><th>Keyword</th><th>Volume</th><th>Wilayah</th></tr></thead><tbody>';
+    for (const src of sources) {
+      const items = tr.by_source[src] || [];
+      for (let i = 0; i < Math.min(items.length, 8); i++) {
+        const t = items[i];
+        const vol = t.volume ? t.volume.toLocaleString('id-ID') : '-';
+        trendHtml += `<tr><td>${SRC_LABEL[src]||src}</td><td class="num">${t.rank}</td><td>${esc(t.keyword)}</td><td class="num">${vol}</td><td>${esc(t.region)}</td></tr>`;
+      }
+    }
+    trendHtml += '</tbody></table>';
+  } else {
+    trendHtml = '<div class="empty">Belum ada tren — tunggu update berikutnya (tiap 3 jam).</div>';
+  }
+  document.getElementById('tTrends').innerHTML = trendHtml;
+
+  // Produk boost tren
+  let boostHtml = '';
+  if (tr.boosted_products && tr.boosted_products.length) {
+    boostHtml = '<table><thead><tr><th>Produk</th><th>Match Tren</th><th>Sumber</th><th>Boost</th><th>Skor</th></tr></thead><tbody>' +
+      tr.boosted_products.map(b =>
+        `<tr><td>${esc(b.title)}</td><td>${esc(b.keyword)}</td><td>${SRC_LABEL[b.source]||b.source}</td><td class="num" style="color:#22c55e">+${b.boost.toFixed(0)}</td><td class="num">${b.score.toFixed(1)}</td></tr>`
+      ).join('') + '</tbody></table>';
+  } else {
+    boostHtml = '<div class="empty">Belum ada produk yang match tren aktif.</div>';
+  }
+  document.getElementById('tBoost').innerHTML = boostHtml;
+
   document.getElementById('tPosts').innerHTML = table(d.recent_posts, [
     { h:'Judul', f:r=>esc(r.title) },
     { h:'Platform', f:r=>`<span class="badge">${esc(r.platform)}</span>` },
@@ -577,12 +753,41 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/stats", "/index.html", "/"):
                 return self._send(200, stats_page(), "text/html; charset=utf-8")
             if path == "/api/stats":
-                data = json.dumps(fetch_stats()).encode("utf-8")
+                data = fetch_stats()
+                try:
+                    data["trends"] = fetch_trends()
+                except Exception:
+                    data["trends"] = {"by_source": {}, "boosted_products": [], "summary": []}
+                return self._send(200, json.dumps(data).encode("utf-8"), "application/json; charset=utf-8")
+            if path == "/api/trends":
+                data = json.dumps(fetch_trends()).encode("utf-8")
                 return self._send(200, data, "application/json; charset=utf-8")
             if path == "/bio":
                 return self._send(200, bio_page(), "text/html; charset=utf-8")
             self._send(404, b'{"ok":false,"error":"not found"}', "application/json")
         except Exception as e:  # noqa: BLE001 — laporkan apa adanya
+            traceback_print()
+            msg = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
+            self._send(500, msg, "application/json")
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            payload = json.loads(body) if body else {}
+
+            if path == "/api/trends-ingest":
+                trends = payload.get("trends", [])
+                result = ingest_trends(trends)
+                return self._send(200, json.dumps(result).encode("utf-8"), "application/json")
+
+            if path == "/api/trends-score":
+                result = score_products_from_trends()
+                return self._send(200, json.dumps(result).encode("utf-8"), "application/json")
+
+            self._send(404, b'{"ok":false,"error":"not found"}', "application/json")
+        except Exception as e:
             traceback_print()
             msg = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
             self._send(500, msg, "application/json")

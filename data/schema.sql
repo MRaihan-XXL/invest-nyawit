@@ -124,3 +124,26 @@ CREATE TABLE IF NOT EXISTS post_metrics (
     UNIQUE (post_id, source)
 );
 CREATE INDEX IF NOT EXISTS idx_post_metrics_post ON post_metrics(post_id);
+
+-- ─── TREN PASAR (Google Trends / TikTok / Shopee / Tokopedia) ──────────────
+CREATE TABLE IF NOT EXISTS trends (
+    id          BIGSERIAL PRIMARY KEY,
+    source      TEXT NOT NULL,                    -- 'google'|'tiktok'|'shopee'|'tokopedia'
+    keyword     TEXT NOT NULL,                    -- kata kunci yang sedang tren
+    region      TEXT NOT NULL DEFAULT 'id',       -- kode wilayah / 'nationwide'
+    volume      INT,                              -- volume indeks 0-100 / jumlah
+    rank        INT,                              -- peringkat saat ini
+    category    TEXT,                             -- kategori produk terkait
+    captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_trends_keyword ON trends(keyword);
+CREATE INDEX IF NOT EXISTS idx_trends_captured ON trends(captured_at);
+
+-- boost skor produk yang match tren aktif (auto-update oleh trend_scout)
+CREATE TABLE IF NOT EXISTS trend_boosts (
+    product_id BIGINT REFERENCES products(id) ON DELETE CASCADE,
+    trend_id   BIGINT REFERENCES trends(id) ON DELETE CASCADE,
+    boost      NUMERIC(6,2) NOT NULL DEFAULT 0,
+    matched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (product_id, trend_id)
+);
