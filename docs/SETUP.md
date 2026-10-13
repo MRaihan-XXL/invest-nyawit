@@ -33,25 +33,34 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
    APPID hanya untuk harvest produk otomatis + laporan konversi; begitu kunci diisi
    di `.env` + recreate n8n, cabang itu otomatis aktif penuh.
 
-### 0e. TikTok Developer (Content Posting API)
-1. https://developers.tiktok.com → daftar (pakai email, bukan akun spam).
-2. Create app → tambah produk **Content Posting API** → mode **Direct Post + Inbox**
-   → aktifkan scope `video.upload` (inbox mode, tanpa audit).
-3. Set redirect URI: **`https://<TUNNEL_URL>/oauth/tiktok`** — ganti `<TUNNEL_URL>`
-   dengan URL trycloudflare aktif (cek `%TEMP%\tunnel-url.txt` atau `.env` `PUBLIC_BASE_URL`).
-   **Wajib didaftarkan dulu di app console** (menu Redirect URIs) sebelum OAuth flow
-   bisa mengembalikan `code` — kalau belum terdaftar, callback datang tapi `params` kosong.
-4. Catat **Client Key + Client Secret** → isi `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET` di `.env`.
-5. **URL verification (untuk submit review Live):** app console → URL properties →
+### 0e. TikTok Developer (Content Posting API + Login Kit)
+1. https://developers.tiktok.com → **Developer Portal** → Create app (atau buka app
+   yang sudah ada) → platform **Web**.
+2. **WAJIB — tambah produk Login Kit.** Tanpa Login Kit, OAuth login gagal dengan
+   error menyesatkan **"correct the following: client_key"** padahal key benar.
+   Ini penyebab umum kegagalan OAuth TikTok.
+3. Tambah produk **Content Posting API** → mode **Inbox** (scope `video.upload`,
+   tanpa audit untuk tahap awal).
+4. Set redirect URI **PERMANEN** (sekali daftar, tidak berubah saat tunnel restart):
+   ```
+   https://mraihan-xxl.github.io/invest-nyawit/oauth-tiktok.html
+   ```
+   Daftarkan di app console (menu Redirect URIs). Halaman GitHub Pages ini
+   (`docs/oauth-tiktok.html`) meneruskan `?code=&state=` otomatis ke receiver
+   lokal `http://localhost:8099/oauth/tiktok`. **Jangan pakai URL tunnel** —
+   berubah tiap reboot PC dan membuat OAuth rusak lagi.
+5. Catat **Client Key + Client Secret** → isi `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET`
+   di `.env` (receiver membaca otomatis, tidak perlu restart).
+6. **URL verification (untuk submit review Live):** app console → URL properties →
    Verify by URL prefix → unduh file signature (mis. `tiktok-developer-site-verification.txt`)
    → taruh di folder `well-known/` di repo ini → file otomatis disajikan via
    `https://<TUNNEL_URL>/.well-known/<nama-file>` (Caddy → oauth-receiver). Verifikasi
    URL ini wajib sebelum Content Posting API bisa dipakai di mode Live.
-6. **Review:** app review → tambahkan produk Content Posting API + Login Kit →
-   upload demo video (pakai `test-pro-v1.mp4` atau hasil render) → Submit for review.
-   Review bisa 1–4 minggu. Individual developer account (tanpa badan usaha) bisa
-   submit review — business verification (org) hanya wajib untuk mini games/mini dramas
-   atau saat butuh skala besar.
+7. **Review:** app review → pastikan produk Content Posting API + Login Kit sudah
+   ditambahkan → upload demo video (pakai `test-pro-v1.mp4` atau hasil render) →
+   Submit for review. Review bisa 1–4 minggu. Individual developer account (tanpa
+   badan usaha) bisa submit review — business verification (org) hanya wajib untuk
+   mini games/mini dramas atau saat butuh skala besar.
 
 ### 0f. Instagram Graph API
 1. https://developers.facebook.com → Create App → tipe **Business** →
@@ -141,29 +150,18 @@ di port 8099 (host). Caddy (`:80` block) meneruskan `/oauth/*` dan `/.well-known
 ke `host.docker.internal:8099`. Callback disimpan ke `%TEMP%\oauth-callback.json`.
 Receiver punya endpoint `/health` untuk watchdog.
 
-### TikTok (scope `video.upload`)
-1. Pastikan redirect URI `https://<TUNNEL_URL>/oauth/tiktok` **sudah didaftarkan** di
-   app console (lihat §0e langkah 3). Kalau belum, callback datang tapi `params` kosong.
-2. Buka link authorize (ganti CLIENT_KEY & TUNNEL_URL):
+### TikTok (scope `video.upload`) — 1 klik, auto-exchange
+1. Pastikan **Login Kit** sudah ditambahkan + redirect URI permanen
+   `https://mraihan-xxl.github.io/invest-nyawit/oauth-tiktok.html` **sudah
+   didaftarkan** di app console (lihat §0e).
+2. Buka link 1-klik (receiver yang menyiapkan semua parameter):
    ```
-   https://www.tiktok.com/v2/auth/authorize/?client_key=CLIENT_KEY&scope=video.upload&response_type=code&redirect_uri=https://TUNNEL_URL/oauth/tiktok&state=xyz
+   http://localhost:8099/oauth/start/tiktok
    ```
-3. Setujui → redirect ke receiver → buka `%TEMP%\oauth-callback.json` → salin `code`.
-4. Tukar token:
-   ```bash
-   curl -X POST https://open.tiktokapis.com/v2/oauth/token/ \
-     -d "client_key=KEY" -d "client_secret=SECRET" \
-     -d "code=CODE" -d "grant_type=authorization_code" \
-     -d "redirect_uri=https://TUNNEL_URL/oauth/tiktok"
-   ```
-5. Simpan (ganti nilai dlm SQL):
-   ```sql
-   INSERT INTO tokens (platform, access_token, refresh_token, expires_at, extra)
-   VALUES ('tiktok', 'ACCESS_TOKEN', 'REFRESH_TOKEN', now() + interval '1 day', '{}')
-   ON CONFLICT (platform) DO UPDATE SET access_token = EXCLUDED.access_token,
-     refresh_token = EXCLUDED.refresh_token, expires_at = EXCLUDED.expires_at;
-   ```
-   (Workflow refresh otomatis tiap 18 jam — setelah ini kamu tidak perlu sentuh.)
+3. Setujui → redirect ke GitHub Pages → otomatis diteruskan ke receiver →
+   receiver menukar token sendiri → INSERT ke tabel `tokens` → notifikasi
+   Telegram "TikTok terhubung ✅". Kamu tidak perlu salin code / jalankan curl.
+4. (Diagnosis) kalau gagal, cek `%TEMP%\oauth-callbacks.log` (JSONL append-only).
 
 ### Instagram (long-lived token)
 1. Dapatkan user token dulu (Graph API Explorer / OAuth) dengan scope
