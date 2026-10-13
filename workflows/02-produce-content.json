@@ -3,12 +3,12 @@
   "name": "02-produce-content",
   "description": null,
   "active": true,
-  "activeVersionId": "7150e3a6-4098-4d56-80a1-2b8318014fdc",
+  "activeVersionId": "53aa6a10-3d9b-4df7-81b8-42c83173d9b4",
   "createdAt": "2026-10-12T05:51:39.318Z",
-  "updatedAt": "2026-10-13T04:32:23.639Z",
+  "updatedAt": "2026-10-13T05:17:41.843Z",
   "isArchived": false,
-  "versionId": "7150e3a6-4098-4d56-80a1-2b8318014fdc",
-  "versionCounter": 9,
+  "versionId": "53aa6a10-3d9b-4df7-81b8-42c83173d9b4",
+  "versionCounter": 10,
   "sourceWorkflowId": null,
   "triggerCount": 1,
   "nodes": [
@@ -510,22 +510,18 @@
               "inputDataFieldName": "data"
             },
             {
-              "parameterType": "formUpload",
               "name": "chat_id",
               "value": "={{ String($env.TELEGRAM_CHAT_ID) }}"
             },
             {
-              "parameterType": "formUpload",
               "name": "caption",
               "value": "={{ '🎬 ' + ($('Parse Script').item.json.title_script || '') + '\\n\\n' + ($('Parse Script').item.json.caption || '') + '\\n\\nAI score: ' + ($('Evaluate Gate').item.json.ai_score) + '/' + ($('Evaluate Gate').item.json.gate_min) }}"
             },
             {
-              "parameterType": "formUpload",
               "name": "reply_markup",
               "value": "={{ JSON.stringify({ inline_keyboard: [[{ text: '✅ Tayangkan', callback_data: 'approve:' + $('Insert Script').item.json.id }, { text: '❌ Buang', callback_data: 'reject:' + $('Insert Script').item.json.id }]] }) }}"
             },
             {
-              "parameterType": "formUpload",
               "name": "supports_streaming",
               "value": "true"
             }
@@ -786,7 +782,7 @@
     }
   ],
   "activeVersion": {
-    "versionId": "7150e3a6-4098-4d56-80a1-2b8318014fdc",
+    "versionId": "53aa6a10-3d9b-4df7-81b8-42c83173d9b4",
     "workflowId": "gI2T9rf7Zo6Q1svC",
     "nodes": [
       {
@@ -1287,22 +1283,18 @@
                 "inputDataFieldName": "data"
               },
               {
-                "parameterType": "formUpload",
                 "name": "chat_id",
                 "value": "={{ String($env.TELEGRAM_CHAT_ID) }}"
               },
               {
-                "parameterType": "formUpload",
                 "name": "caption",
                 "value": "={{ '🎬 ' + ($('Parse Script').item.json.title_script || '') + '\\n\\n' + ($('Parse Script').item.json.caption || '') + '\\n\\nAI score: ' + ($('Evaluate Gate').item.json.ai_score) + '/' + ($('Evaluate Gate').item.json.gate_min) }}"
               },
               {
-                "parameterType": "formUpload",
                 "name": "reply_markup",
                 "value": "={{ JSON.stringify({ inline_keyboard: [[{ text: '✅ Tayangkan', callback_data: 'approve:' + $('Insert Script').item.json.id }, { text: '❌ Buang', callback_data: 'reject:' + $('Insert Script').item.json.id }]] }) }}"
               },
               {
-                "parameterType": "formUpload",
                 "name": "supports_streaming",
                 "value": "true"
               }
@@ -1530,16 +1522,16 @@
     "name": null,
     "description": null,
     "autosaved": false,
-    "createdAt": "2026-10-13T04:32:23.641Z",
-    "updatedAt": "2026-10-13T04:32:23.641Z",
+    "createdAt": "2026-10-13T05:17:41.848Z",
+    "updatedAt": "2026-10-13T05:17:41.848Z",
     "workflowPublishHistory": [
       {
-        "id": 47,
+        "id": 51,
         "workflowId": "gI2T9rf7Zo6Q1svC",
-        "versionId": "7150e3a6-4098-4d56-80a1-2b8318014fdc",
+        "versionId": "53aa6a10-3d9b-4df7-81b8-42c83173d9b4",
         "event": "activated",
         "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
-        "createdAt": "2026-10-13T04:32:23.74Z"
+        "createdAt": "2026-10-13T05:17:41.964Z"
       }
     ]
   }

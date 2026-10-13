@@ -3,12 +3,12 @@
   "name": "04-publish",
   "description": null,
   "active": true,
-  "activeVersionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+  "activeVersionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
   "createdAt": "2026-10-12T05:51:39.318Z",
-  "updatedAt": "2026-10-13T04:08:58.815Z",
+  "updatedAt": "2026-10-13T05:18:13.494Z",
   "isArchived": false,
-  "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
-  "versionCounter": 2,
+  "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
+  "versionCounter": 3,
   "sourceWorkflowId": null,
   "triggerCount": 2,
   "nodes": [
@@ -110,6 +110,7 @@
       "name": "Load Tokens",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
+      "alwaysOutputData": true,
       "position": [
         660,
         -60
@@ -1073,7 +1074,7 @@
     }
   ],
   "activeVersion": {
-    "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+    "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
     "workflowId": "MOUN9WujgBXqQQrE",
     "nodes": [
       {
@@ -1174,6 +1175,7 @@
         "name": "Load Tokens",
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
+        "alwaysOutputData": true,
         "position": [
           660,
           -60
@@ -2094,16 +2096,16 @@
     "name": null,
     "description": null,
     "autosaved": false,
-    "createdAt": "2026-10-13T04:08:58.818Z",
-    "updatedAt": "2026-10-13T04:08:58.818Z",
+    "createdAt": "2026-10-13T05:18:13.499Z",
+    "updatedAt": "2026-10-13T05:18:13.499Z",
     "workflowPublishHistory": [
       {
-        "id": 31,
+        "id": 53,
         "workflowId": "MOUN9WujgBXqQQrE",
-        "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+        "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
         "event": "activated",
         "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
-        "createdAt": "2026-10-13T04:08:58.918Z"
+        "createdAt": "2026-10-13T05:18:13.642Z"
       }
     ]
   }
