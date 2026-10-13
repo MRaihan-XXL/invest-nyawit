@@ -89,7 +89,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '🔥 Tren baru: ' + $json.total_trends + ' keywords (' + Object.entries($json.by_source).map(([k,v]) => k + ':' + v).join(', ') + ') — skor produk sudah di-update.' }) }}",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '🔥 TOP 5 TREND HARI INI\\n' + ($json.top5||[]).map((t,i) => (i+1) + '. ' + t.keyword + ' (' + t.source + (t.volume ? ', vol ' + String(t.volume) : '') + ')').join('\\n') + '\\n\\n📊 ' + $json.total_trends + ' tren total · ' + Object.entries($json.by_source).map(([k,v]) => k + ':' + v).join(', ') + '\\n🔗 Cek detail: {{ $env.PUBLIC_BASE_URL }}/stats' }) }}",
         "options": {}
       },
       "id": "a7000001-0000-4000-8000-000000000004",

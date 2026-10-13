@@ -7,7 +7,12 @@
           "interval": [
             {
               "field": "hours",
-              "hours": [7, 12, 19, 21]
+              "hours": [
+                7,
+                12,
+                19,
+                21
+              ]
             }
           ]
         }
@@ -16,7 +21,10 @@
       "name": "Every 6h",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -28,7 +36,10 @@
       "name": "Load Strategy",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [110, 0],
+      "position": [
+        110,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -44,7 +55,10 @@
       "name": "Prepare Pick",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [165, 0]
+      "position": [
+        165,
+        0
+      ]
     },
     {
       "parameters": {
@@ -58,7 +72,10 @@
       "name": "Pick Top Product",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -93,17 +110,23 @@
       "name": "Product Found?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Konfigurasi per track + prompt naskah video.\nconst p = $json;\nconst isEN = p.track === 'en';\nconst lang = isEN ? 'en' : 'id';\nconst voice = isEN ? 'en-US-JennyNeural' : 'id-ID-GadisNeural';\nconst handle = isEN ? ($env.HANDLE_EN || '@yourchannel') : ($env.HANDLE_ID || '@primefinds.id');\nconst strat = $('Prepare Pick').item.json.strategy || {};\n\nconst toneEN = 'Casual American TikTok voice, punchy, no cringe, honest-review energy.';\nconst toneID = 'Bahasa Indonesia santai ala TikTok, gen Z, to the point, tidak norak.';\nconst priceTxt = p.price_min ? `Harga sekitar Rp${Math.round(Number(p.price_min))}` : '';\n\nconst systemPrompt = isEN\n  ? 'You are a short-form video scriptwriter for a faceless affiliate channel reviewing software/AI tools and gadgets. Output STRICT JSON only.'\n  : 'Kamu penulis naskah video pendek untuk akun finds/affiliation Indonesia. Output HANYA JSON ketat.';\n\nconst userPrompt = `Produk: ${p.title}\nToko/sumber: ${p.shop_name || '-'}\n${priceTxt}\nKomisi: ${p.commission_rate ? (Number(p.commission_rate) * 100).toFixed(1) + '%' : (p.commission_amt || '-')}\n\nBuat naskah video 3-4 scene (total narasi 20-35 detik):\n- Scene 1 = HOOK 1 kalimat yang bikin stop scroll (tanpa bohong, tanpa klaim berlebihan)\n- Scene 2-3 = benefit nyata + bukti dari data produk (jangan mengarang fitur)\n- Scene terakhir = CTA (klik keranjang kuning / link di bio)\nGaya: ${isEN ? toneEN : toneID}${strat.hook_style ? `\nGaya hook (hasil analis): ${strat.hook_style}` : ''}${strat.tone ? `\nNada (hasil analis): ${strat.tone}` : ''}\n\nFormat JSON:\n{\n  \"title\": \"judul internal singkat\",\n  \"hook\": \"kalimat hook\",\n  \"scenes\": [{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}],\n  \"caption\": \"caption postingan 1-2 kalimat\",\n  \"hashtags\": \"#tag1 #tag2 #tag3 (3-5 tag relevan)\"\n}\nAturan: maksimal 20 kata per scene. Tanpa emoji di dalam scene text (jadi subtitle).`;\n\nconst payload = {\n  model: $env.LLM_MODEL,\n  temperature: 0.8,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]\n};\n\nreturn {\n  json: {\n    ...p,\n    lang,\n    voice,\n    handle,\n    gate_min: strat.min_score || Number($env.AI_GATE_MIN || 70),\n    scriptRequest: payload,\n    scriptEndpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    scriptAuth: 'Bearer ' + ($env.LLM_API_KEY || '')\n  }\n};"
+        "jsCode": "// Konfigurasi per track + prompt naskah video.\nconst p = $('Product Found?').item.json;\nconst trendKw = ($json.trends || []).map(t => t.keyword).filter(Boolean);\nconst isEN = p.track === 'en';\nconst lang = isEN ? 'en' : 'id';\nconst voice = isEN ? 'en-US-JennyNeural' : 'id-ID-GadisNeural';\nconst handle = isEN ? ($env.HANDLE_EN || '@yourchannel') : ($env.HANDLE_ID || '@primefinds.id');\nconst strat = $('Prepare Pick').item.json.strategy || {};\n\nconst toneEN = 'Casual American TikTok voice, punchy, no cringe, honest-review energy.';\nconst toneID = 'Bahasa Indonesia santai ala TikTok, gen Z, to the point, tidak norak.';\nconst priceTxt = p.price_min ? `Harga sekitar Rp${Math.round(Number(p.price_min))}` : '';\n\nconst systemPrompt = isEN\n  ? 'You are a short-form video scriptwriter for a faceless affiliate channel reviewing software/AI tools and gadgets. Output STRICT JSON only.'\n  : 'Kamu penulis naskah video pendek untuk akun finds/affiliation Indonesia. Output HANYA JSON ketat.';\n\nconst userPrompt = `Produk: ${p.title}\nToko/sumber: ${p.shop_name || '-'}\n${priceTxt}\nKomisi: ${p.commission_rate ? (Number(p.commission_rate) * 100).toFixed(1) + '%' : (p.commission_amt || '-')}\n\nBuat naskah video 3-4 scene (total narasi 20-35 detik):\n- Scene 1 = HOOK 1 kalimat yang bikin stop scroll (tanpa bohong, tanpa klaim berlebihan)\n- Scene 2-3 = benefit nyata + bukti dari data produk (jangan mengarang fitur)\n- Scene terakhir = CTA (klik keranjang kuning / link di bio)\nGaya: ${isEN ? toneEN : toneID}${strat.hook_style ? `\nGaya hook (hasil analis): ${strat.hook_style}` : ''}${strat.tone ? `\nNada (hasil analis): ${strat.tone}` : ''}\n\n${trendKw.length ? `\\nTrend pasar saat ini (pakai untuk hook/hashtag HANYA bila relevan, jangan dipaksakan): ${trendKw.slice(0, 5).join(', ')}` : ''}\nFormat JSON:\n{\n  \"title\": \"judul internal singkat\",\n  \"hook\": \"kalimat hook\",\n  \"scenes\": [{\"text\":\"...\"},{\"text\":\"...\"},{\"text\":\"...\"}],\n  \"caption\": \"caption postingan 1-2 kalimat\",\n  \"hashtags\": \"#tag1 #tag2 #tag3 (3-5 tag relevan, boleh 1-2 dari trend pasar bila cocok)\"\n}\nAturan: maksimal 20 kata per scene. Tanpa emoji di dalam scene text (jadi subtitle).`;\n\nconst payload = {\n  model: $env.LLM_MODEL,\n  temperature: 0.8,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]\n};\n\nreturn {\n  json: {\n    ...p,\n    lang,\n    voice,\n    handle,\n    gate_min: strat.min_score || Number($env.AI_GATE_MIN || 70),\n    scriptRequest: payload,\n    scriptEndpoint: ($env.LLM_BASE_URL || '').replace(/\\/$/, '') + '/chat/completions',\n    scriptAuth: 'Bearer ' + ($env.LLM_API_KEY || '')\n  }\n};"
       },
       "id": "a2000001-0000-4000-8000-000000000004",
       "name": "Track Config + Script Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, -100]
+      "position": [
+        660,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -133,7 +156,10 @@
       "name": "LLM Write Script",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [880, -100]
+      "position": [
+        880,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -143,7 +169,10 @@
       "name": "Parse Script",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, -100]
+      "position": [
+        1100,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -173,17 +202,23 @@
       "name": "LLM Quality Gate",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, -100]
+      "position": [
+        1320,
+        -100
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Evaluasi gate: output 0 = LULUS (lanjut render), output 1 = TOLAK.\nconst ctx = $('Parse Script').item.json;\nlet content = $json.choices[0].message.content || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nconst verdict = m ? JSON.parse(m[0]) : { score: 0, compliant: false, reasons: ['gate parse error'] };\n\nconst min = Number(ctx.gate_min || $env.AI_GATE_MIN || 70);\nconst pass = Number(verdict.score) >= min && verdict.compliant === true;\n\nconst item = {\n  json: {\n    ...ctx,\n    ai_score: Number(verdict.score) || 0,\n    ai_verdict: verdict,\n    gate_min: min\n  }\n};\nreturn pass ? [[item]] : [[], [item]];"
+        "jsCode": "// Evaluasi gate: output 0 = LULUS (lanjut render), output 1 = TOLAK.\nconst ctx = $('Parse Script').item.json;\nlet content = $json.choices[0].message.content || '';\ncontent = content.replace(/^```(json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nconst m = content.match(/\\{[\\s\\S]*\\}/);\nconst verdict = m ? JSON.parse(m[0]) : { score: 0, compliant: false, reasons: ['gate parse error'] };\n\nconst min = Number(ctx.gate_min || $env.AI_GATE_MIN || 70);\nconst pass = Number(verdict.score) >= min && verdict.compliant === true;\n\nconst item = {\n  json: {\n    ...ctx,\n    ai_score: Number(verdict.score) || 0,\n    ai_verdict: verdict,\n    gate_min: min,\n    gate_pass: pass\n  }\n};\n// Code node n8n = satu output -> WAJIB array of items (flat).\nreturn [item];"
       },
       "id": "a2000001-0000-4000-8000-000000000008",
       "name": "Evaluate Gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, -100],
+      "position": [
+        1540,
+        -100
+      ],
       "outputs": 2
     },
     {
@@ -198,7 +233,10 @@
       "name": "Mark Product Used",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1760, 40],
+      "position": [
+        1760,
+        40
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -218,7 +256,10 @@
       "name": "Insert Script",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1760, -200],
+      "position": [
+        1760,
+        -200
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -250,7 +291,10 @@
       "name": "Render Video",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1980, -200],
+      "position": [
+        1980,
+        -200
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -281,7 +325,10 @@
       "name": "Render OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2200, -200]
+      "position": [
+        2200,
+        -200
+      ]
     },
     {
       "parameters": {
@@ -295,7 +342,10 @@
       "name": "Mark Rendered",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [2420, -280],
+      "position": [
+        2420,
+        -280
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -327,7 +377,10 @@
       "name": "Telegram Preview",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2640, -280]
+      "position": [
+        2640,
+        -280
+      ]
     },
     {
       "parameters": {
@@ -341,7 +394,10 @@
       "name": "Mark Dropped",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1760, 200],
+      "position": [
+        1760,
+        200
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -361,7 +417,64 @@
       "name": "Mark Render Failed",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [2420, -80],
+      "position": [
+        2420,
+        -80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.gate_pass }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a2000001-0000-4000-8000-000000000098",
+      "name": "Gate Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(json_agg(json_build_object('keyword', s.keyword, 'source', s.source)), '[]'::json) AS trends FROM (SELECT keyword, source FROM trends ORDER BY captured_at DESC, rank ASC NULLS LAST LIMIT 5) s;",
+        "options": {}
+      },
+      "id": "a2000001-0000-4000-8000-000000000099",
+      "name": "Load Top Trends",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        550,
+        120
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -419,7 +532,7 @@
       "main": [
         [
           {
-            "node": "Track Config + Script Prompt",
+            "node": "Load Top Trends",
             "type": "main",
             "index": 0
           }
@@ -474,14 +587,7 @@
       "main": [
         [
           {
-            "node": "Mark Product Used",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Mark Dropped",
+            "node": "Gate Passed?",
             "type": "main",
             "index": 0
           }
@@ -544,6 +650,35 @@
         [
           {
             "node": "Telegram Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Top Trends": {
+      "main": [
+        [
+          {
+            "node": "Track Config + Script Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate Passed?": {
+      "main": [
+        [
+          {
+            "node": "Mark Product Used",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Dropped",
             "type": "main",
             "index": 0
           }
