@@ -82,7 +82,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT p.id, p.track, p.title, p.image_url, p.product_url, p.offer_url, p.price_min, p.price_max, p.commission_rate, p.commission_amt, p.sales, p.rating_star, p.shop_name FROM products p WHERE p.status = 'new' AND NOT EXISTS (SELECT 1 FROM scripts s WHERE s.product_id = p.id AND s.status NOT IN ('dropped', 'failed')) AND ((p.track = 'id' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'id' AND sc.created_at >= date_trunc('day', now())) < $1) OR (p.track = 'en' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'en' AND sc.created_at >= date_trunc('day', now())) < $2)) ORDER BY p.score DESC LIMIT 2;",
+        "query": "WITH top5 AS (\n  SELECT p.id, p.track, p.title, p.image_url, p.product_url, p.offer_url,\n         p.price_min, p.price_max, p.commission_rate, p.commission_amt,\n         p.sales, p.rating_star, p.shop_name, p.score\n  FROM products p\n  WHERE p.status = 'new'\n    AND NOT EXISTS (\n      SELECT 1 FROM scripts s\n      WHERE s.product_id = p.id AND s.status NOT IN ('dropped','failed')\n    )\n    AND (\n      (p.track = 'id' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track='id' AND sc.created_at >= date_trunc('day', now())) < $1)\n      OR\n      (p.track = 'en' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track='en' AND sc.created_at >= date_trunc('day', now())) < $2)\n    )\n  ORDER BY p.score DESC\n  LIMIT 5\n)\nSELECT id, track, title, image_url, product_url, offer_url,\n       price_min, price_max, commission_rate, commission_amt,\n       sales, rating_star, shop_name\nFROM top5\nORDER BY random()\nLIMIT 1;",
         "options": {
           "queryReplacement": "={{ [ $('Prepare Pick').item.json.quotaId, $('Prepare Pick').item.json.quotaEn ] }}"
         }
@@ -351,7 +351,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE scripts SET status = 'rendered', media_file = $1, media_bytes = $2, render_seconds = $3, updated_at = now() WHERE id = $4;",
+        "query": "UPDATE scripts SET status = 'approved', media_file = $1, media_bytes = $2, render_seconds = $3, updated_at = now() WHERE id = $4;",
         "options": {
           "queryReplacement": "={{ [ $json.file, $json.bytes || 0, $json.elapsed || 0, $('Insert Script').item.json.id ] }}"
         }
@@ -528,6 +528,28 @@
           ]
         }
       }
+    },
+    {
+      "id": "e0f6b110-5910-45ec-a8ef-9d04bfbe4891",
+      "name": "Alert Low Stock",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "json": {
+            "chat_id": "={{ String($env.TELEGRAM_CHAT_ID) }}",
+            "text": "⚠️ invest-nyawit: stok produk ID habis (semua used/exhausted). Tambah produk baru / cek Shopee API."
+          }
+        }
+      }
     }
   ],
   "connections": {
@@ -580,6 +602,13 @@
         [
           {
             "node": "Load Top Trends",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Low Stock",
             "type": "main",
             "index": 0
           }
@@ -855,7 +884,7 @@
         ],
         "parameters": {
           "operation": "executeQuery",
-          "query": "SELECT p.id, p.track, p.title, p.image_url, p.product_url, p.offer_url, p.price_min, p.price_max, p.commission_rate, p.commission_amt, p.sales, p.rating_star, p.shop_name FROM products p WHERE p.status = 'new' AND NOT EXISTS (SELECT 1 FROM scripts s WHERE s.product_id = p.id AND s.status NOT IN ('dropped', 'failed')) AND ((p.track = 'id' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'id' AND sc.created_at >= date_trunc('day', now())) < $1) OR (p.track = 'en' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track = 'en' AND sc.created_at >= date_trunc('day', now())) < $2)) ORDER BY p.score DESC LIMIT 2;",
+          "query": "WITH top5 AS (\n  SELECT p.id, p.track, p.title, p.image_url, p.product_url, p.offer_url,\n         p.price_min, p.price_max, p.commission_rate, p.commission_amt,\n         p.sales, p.rating_star, p.shop_name, p.score\n  FROM products p\n  WHERE p.status = 'new'\n    AND NOT EXISTS (\n      SELECT 1 FROM scripts s\n      WHERE s.product_id = p.id AND s.status NOT IN ('dropped','failed')\n    )\n    AND (\n      (p.track = 'id' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track='id' AND sc.created_at >= date_trunc('day', now())) < $1)\n      OR\n      (p.track = 'en' AND (SELECT COUNT(*) FROM scripts sc WHERE sc.track='en' AND sc.created_at >= date_trunc('day', now())) < $2)\n    )\n  ORDER BY p.score DESC\n  LIMIT 5\n)\nSELECT id, track, title, image_url, product_url, offer_url,\n       price_min, price_max, commission_rate, commission_amt,\n       sales, rating_star, shop_name\nFROM top5\nORDER BY random()\nLIMIT 1;",
           "options": {
             "queryReplacement": "={{ [ $('Prepare Pick').item.json.quotaId, $('Prepare Pick').item.json.quotaEn ] }}"
           }
@@ -1124,7 +1153,7 @@
         ],
         "parameters": {
           "operation": "executeQuery",
-          "query": "UPDATE scripts SET status = 'rendered', media_file = $1, media_bytes = $2, render_seconds = $3, updated_at = now() WHERE id = $4;",
+          "query": "UPDATE scripts SET status = 'approved', media_file = $1, media_bytes = $2, render_seconds = $3, updated_at = now() WHERE id = $4;",
           "options": {
             "queryReplacement": "={{ [ $json.file, $json.bytes || 0, $json.elapsed || 0, $('Insert Script').item.json.id ] }}"
           }
@@ -1299,6 +1328,28 @@
                 "value": "true"
               }
             ]
+          }
+        }
+      },
+      {
+        "id": "3d58c596-e807-4013-865e-776de6e37433",
+        "name": "Alert Low Stock",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          660,
+          200
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+          "sendBody": true,
+          "contentType": "json",
+          "body": {
+            "json": {
+              "chat_id": "={{ String($env.TELEGRAM_CHAT_ID) }}",
+              "text": "⚠️ invest-nyawit: stok produk ID habis (semua used/exhausted). Tambah produk baru / cek Shopee API."
+            }
           }
         }
       }

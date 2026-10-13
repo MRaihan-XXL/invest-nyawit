@@ -18,6 +18,11 @@
 		reverse_proxy n8n:5678
 	}
 
+	# OAuth callback (TikTok/Meta) -> receiver di host
+	handle /oauth/* {
+		reverse_proxy host.docker.internal:8099
+	}
+
 	# Dashboard (auth oleh app.py) + link-in-bio publik.
 	handle /stats* {
 		reverse_proxy dashboard:8091

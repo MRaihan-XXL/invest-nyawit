@@ -16,7 +16,10 @@
       "name": "Daily Analyst",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -29,7 +32,10 @@
       "name": "IG Candidates",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -49,7 +55,10 @@
       "name": "IG Insights",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 0],
+      "position": [
+        440,
+        0
+      ],
       "alwaysOutputData": true,
       "onError": "continueRegularOutput"
     },
@@ -61,7 +70,10 @@
       "name": "Save Insights",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 0]
+      "position": [
+        660,
+        0
+      ]
     },
     {
       "parameters": {
@@ -73,7 +85,10 @@
       "name": "Write Insights",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [880, 0],
+      "position": [
+        880,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -91,7 +106,10 @@
       "name": "Collect Metrics",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1100, 0],
+      "position": [
+        1100,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -107,7 +125,10 @@
       "name": "Build Analyst Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, 0]
+      "position": [
+        1320,
+        0
+      ]
     },
     {
       "parameters": {
@@ -137,7 +158,10 @@
       "name": "LLM Strategist",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 0]
+      "position": [
+        1540,
+        0
+      ]
     },
     {
       "parameters": {
@@ -147,7 +171,10 @@
       "name": "Parse Strategy",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1760, 0]
+      "position": [
+        1760,
+        0
+      ]
     },
     {
       "parameters": {
@@ -178,12 +205,15 @@
       "name": "Analyst Skipped?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1870, 0]
+      "position": [
+        1870,
+        0
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO strategy (version, analysis, changes, hypotheses, health_score) VALUES ((SELECT COALESCE(MAX(version), 0) + 1 FROM strategy), $1::jsonb, $2::jsonb, $3::jsonb, $4) RETURNING id, version;",
+        "query": "WITH deactivated AS (\n  UPDATE strategy SET active = false WHERE active = true\n)\nINSERT INTO strategy (version, analysis, changes, hypotheses, health_score, active)\nVALUES (\n  (SELECT COALESCE(MAX(version), 0) + 1 FROM strategy),\n  $1::jsonb, $2::jsonb, $3::jsonb, $4, true\n)\nRETURNING id, version;",
         "options": {
           "queryReplacement": "={{ [ JSON.stringify($json.analysis || ''), JSON.stringify($json.changes || {}), JSON.stringify($json.hypotheses || []), $json.health || null ] }}"
         }
@@ -192,7 +222,10 @@
       "name": "Insert Strategy",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [1980, 0],
+      "position": [
+        1980,
+        0
+      ],
       "credentials": {
         "postgres": {
           "id": "REPLACE_ME",
@@ -224,7 +257,10 @@
       "name": "Telegram Proposal",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2200, 0],
+      "position": [
+        2200,
+        0
+      ],
       "onError": "continueRegularOutput"
     }
   ],

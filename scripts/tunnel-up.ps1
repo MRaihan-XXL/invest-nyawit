@@ -14,6 +14,14 @@ $cf    = 'C:\Program Files (x86)\cloudflared\cloudflared.exe'
 $log   = Join-Path $env:TEMP 'cloudflared-live.log'
 $state = Join-Path $env:TEMP 'tunnel-url.txt'
 
+# cegah instance ganda (scheduled task ONLOGON + retry per 5 menit bisa tabrakan)
+$lock = Join-Path $env:TEMP 'tunnel-up.lock'
+if (Test-Path $lock) {
+    $lockAge = (Get-Date) - (Get-Item $lock).LastWriteTime
+    if ($lockAge.TotalMinutes -lt 3) { exit }
+}
+Set-Content -Path $lock -Value (Get-Date -Format o) -Encoding utf8
+
 function Log($m) {
     Add-Content -Path (Join-Path $env:TEMP 'tunnel-up.log') -Value ("{0} {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m)
 }
@@ -70,6 +78,7 @@ function Sync-Url($url) {
 
 Log 'tunnel-up start'
 while ($true) {
+    Set-Content -Path $lock -Value (Get-Date -Format o) -Encoding utf8  # refresh lock tiap iterasi
     $alive = Get-Process cloudflared -ErrorAction SilentlyContinue
     $url = if ($alive) { Get-TunnelUrl } else { $null }
 

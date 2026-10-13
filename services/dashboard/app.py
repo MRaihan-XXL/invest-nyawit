@@ -413,23 +413,53 @@ def ingest_trends(trends: list[dict]) -> dict:
 
 
 def score_products_from_trends() -> dict:
-    """Update skor produk berdasarkan tren aktif (12 jam terakhir).
+    """Skor komposit multi-faktor + boost tren (12 jam terakhir).
 
-    Produk yang judulnya match keyword tren aktif dapat boost skor.
-    Boost = min(20, jumlah match * 5), dibatasi agar skor tidak meledak.
+    base_score (0-80): sales (log) + rating + komisi + diskon + kelengkapan.
+    trend_boost (0-20): keyword tren muncul di judul produk (arah diperbaiki:
+    judul produk MENGANDUNG keyword, bukan keyword mengandung judul).
+    score akhir = LEAST(100, base_score + trend_boost) — baseline stabil,
+    boost tidak menumpuk antar run.
     """
     with _conn() as conn, conn.cursor() as cur:
-        # Hapus boost lama
+        # pastikan kolom base_score ada (migrasi ringan tanpa alembic)
+        cur.execute("""
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS base_score numeric(6,2) DEFAULT 0;
+        """)
+
+        # 1. hitung base_score komposit untuk semua produk aktif
+        cur.execute(
+            """
+            UPDATE products
+            SET base_score = LEAST(80,
+                  COALESCE(LEAST(30, ln(GREATEST(COALESCE(sales,0),0)+1) * 8), 0)
+                + COALESCE(LEAST(20, (COALESCE(rating_star,0) / 5.0) * 20), 0)
+                + COALESCE(LEAST(15,
+                    CASE
+                      WHEN commission_rate IS NOT NULL THEN commission_rate * 100 * 1.5
+                      WHEN commission_amt   IS NOT NULL THEN commission_amt / 100.0
+                      ELSE 0
+                    END), 0)
+                + COALESCE(LEAST(10, COALESCE(discount_rate,0) / 10.0), 0)
+                + CASE WHEN COALESCE(image_url,'')<>'' AND COALESCE(offer_url,'')<>'' THEN 5 ELSE 0 END
+            ),
+            updated_at = now()
+            WHERE status <> 'exhausted'
+            """
+        )
+
+        # 2. hapus boost lama
         cur.execute("DELETE FROM trend_boosts")
 
-        # Match produk dengan tren aktif (keyword muncul di judul produk, case-insensitive)
+        # 3. boost tren: judul produk mengandung keyword (arah benar)
         cur.execute(
             """
             INSERT INTO trend_boosts (product_id, trend_id, boost)
-            SELECT DISTINCT p.id, t.id,
+            SELECT p.id, t.id,
                    LEAST(20, 5 * (SELECT COUNT(*) FROM trends t2
-                                  WHERE t2.keyword ILIKE '%' || p.title || '%'
-                                    AND t2.captured_at >= now() - interval '12 hours'))
+                                  WHERE p.title ILIKE '%' || t2.keyword || '%'
+                                    AND t2.captured_at >= now() - interval '12 hours'
+                                    AND LENGTH(t2.keyword) >= 3))
             FROM products p
             JOIN trends t ON p.title ILIKE '%' || t.keyword || '%'
             WHERE t.captured_at >= now() - interval '12 hours'
@@ -440,15 +470,15 @@ def score_products_from_trends() -> dict:
         )
         boosted = cur.rowcount
 
-        # Update skor produk: skor = skor_asli + total_boost
+        # 4. score akhir = base_score + total_boost (baseline stabil, tidak numpuk)
         cur.execute(
             """
             UPDATE products p
-            SET score = LEAST(100, p.score + COALESCE((
+            SET score = LEAST(100, COALESCE(p.base_score, 75) + COALESCE((
                     SELECT SUM(tb.boost) FROM trend_boosts tb WHERE tb.product_id = p.id
                 ), 0)),
                 updated_at = now()
-            WHERE p.id IN (SELECT DISTINCT product_id FROM trend_boosts)
+            WHERE p.status <> 'exhausted'
             """
         )
         updated = cur.rowcount
