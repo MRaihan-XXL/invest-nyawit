@@ -1,7 +1,26 @@
 {
+  "id": "dNxvjZI6eRlj6heX",
   "name": "05-analytics",
+  "description": null,
+  "active": true,
+  "activeVersionId": "02a08665-de02-4cff-84bd-2a2a5a48b413",
+  "createdAt": "2026-10-12T05:51:39.318Z",
+  "updatedAt": "2026-10-13T04:14:56.871Z",
+  "isArchived": false,
+  "versionId": "02a08665-de02-4cff-84bd-2a2a5a48b413",
+  "versionCounter": 4,
+  "sourceWorkflowId": null,
+  "triggerCount": 2,
   "nodes": [
     {
+      "id": "a5000001-0000-4000-8000-000000000001",
+      "name": "Daily Pull",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -11,14 +30,17 @@
             }
           ]
         }
-      },
-      "id": "a5000001-0000-4000-8000-000000000001",
-      "name": "Daily Pull",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 0]
+      }
     },
     {
+      "id": "a5000001-0000-4000-8000-000000000011",
+      "name": "Weekly Summary Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -28,24 +50,30 @@
             }
           ]
         }
-      },
-      "id": "a5000001-0000-4000-8000-000000000011",
-      "name": "Weekly Summary Trigger",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 220]
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Tarik laporan konversi Shopee (dijalankan HARIAN, jendela 7 hari untuk jaring pengaman\n// kalau 1 hari gagal). Duplikat ditahan unique index (checkout_id, ts) di tabel conversions.\nconst crypto = require('crypto');\nconst appid = $env.SHOPEE_AFFILIATE_APPID;\nconst secret = $env.SHOPEE_AFFILIATE_SECRET;\nif (!appid || !secret) throw new Error('SHOPEE_AFFILIATE_APPID/SECRET belum diisi');\n\nconst end = Math.floor(Date.now() / 1000);\nconst start = end - 7 * 24 * 3600;\nconst query = `{\n  conversionReport(purchaseTimeStart: ${start}, purchaseTimeEnd: ${end}, scrollId: \"\", limit: 500, orderStatus: ALL) {\n    nodes {\n      checkoutId\n      purchaseTime\n      estimatedTotalCommission\n      grossCommission\n      cappedCommission\n      totalBrandCommission\n    }\n    pageInfo { scrollId hasNextPage }\n  }\n}`;\nconst body = JSON.stringify({ query });\nconst ts = Math.floor(Date.now() / 1000);\nconst sign = crypto.createHash('sha256').update(appid + String(ts) + body + secret).digest('hex');\nreturn {\n  json: {\n    body,\n    auth: `SHA256 Credential=${appid}, Signature=${sign}, Timestamp=${ts}`,\n    start,\n    end\n  }\n};"
-      },
       "id": "a5000001-0000-4000-8000-000000000002",
       "name": "Build Report Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 0]
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Tarik laporan konversi Shopee (dijalankan HARIAN, jendela 7 hari untuk jaring pengaman\n// kalau 1 hari gagal). Duplikat ditahan unique index (checkout_id, ts) di tabel conversions.\nconst crypto = require('crypto');\nconst appid = $env.SHOPEE_AFFILIATE_APPID;\nconst secret = $env.SHOPEE_AFFILIATE_SECRET;\nif (!appid || !secret) throw new Error('SHOPEE_AFFILIATE_APPID/SECRET belum diisi');\n\nconst end = Math.floor(Date.now() / 1000);\nconst start = end - 7 * 24 * 3600;\nconst query = `{\n  conversionReport(purchaseTimeStart: ${start}, purchaseTimeEnd: ${end}, scrollId: \"\", limit: 500, orderStatus: ALL) {\n    nodes {\n      checkoutId\n      purchaseTime\n      estimatedTotalCommission\n      grossCommission\n      cappedCommission\n      totalBrandCommission\n    }\n    pageInfo { scrollId hasNextPage }\n  }\n}`;\nconst body = JSON.stringify({ query });\nconst ts = Math.floor(Date.now() / 1000);\nconst sign = crypto.createHash('sha256').update(appid + String(ts) + body + secret).digest('hex');\nreturn {\n  json: {\n    body,\n    auth: `SHA256 Credential=${appid}, Signature=${sign}, Timestamp=${ts}`,\n    start,\n    end\n  }\n};"
+      }
     },
     {
+      "id": "a5000001-0000-4000-8000-000000000003",
+      "name": "Shopee conversionReport",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://open-api.affiliate.shopee.co.id/graphql",
@@ -68,70 +96,86 @@
         "options": {
           "timeout": 30000
         }
-      },
-      "id": "a5000001-0000-4000-8000-000000000003",
-      "name": "Shopee conversionReport",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [440, 0]
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Agregat + simpan ke tabel conversions + siap ringkasan Telegram.\nconst rep = ($json.data && $json.data.conversionReport) || {};\nconst nodes = rep.nodes || [];\nlet total = 0;\nconst rows = [];\nconst esc = s => String(s ?? '').replace(/'/g, \"''\");\nfor (const n of nodes) {\n  const comm = Number(n.estimatedTotalCommission || 0);\n  total += comm;\n  rows.push(`('${esc(n.checkoutId)}', ${comm}, to_timestamp(${Number(n.purchaseTime || 0)}), '${esc(JSON.stringify(n))}')`);\n}\nlet sql = 'SELECT 1';\nif (rows.length) {\n  sql = `INSERT INTO conversions (checkout_id, commission, ts, raw) VALUES ${rows.join(',')} ON CONFLICT DO NOTHING;`;\n}\nconst hasMore = !!(rep.pageInfo && rep.pageInfo.hasNextPage);\nreturn {\n  json: {\n    sql,\n    orders: nodes.length,\n    total_commission: Math.round(total * 100) / 100,\n    has_more: hasMore\n  }\n};"
-      },
       "id": "a5000001-0000-4000-8000-000000000004",
       "name": "Aggregate Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 0]
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Agregat + simpan ke tabel conversions + siap ringkasan Telegram.\nconst rep = ($json.data && $json.data.conversionReport) || {};\nconst nodes = rep.nodes || [];\nlet total = 0;\nconst rows = [];\nconst esc = s => String(s ?? '').replace(/'/g, \"''\");\nfor (const n of nodes) {\n  const comm = Number(n.estimatedTotalCommission || 0);\n  total += comm;\n  rows.push(`('${esc(n.checkoutId)}', ${comm}, to_timestamp(${Number(n.purchaseTime || 0)}), '${esc(JSON.stringify(n))}')`);\n}\nlet sql = 'SELECT 1';\nif (rows.length) {\n  sql = `INSERT INTO conversions (checkout_id, commission, ts, raw) VALUES ${rows.join(',')} ON CONFLICT DO NOTHING;`;\n}\nconst hasMore = !!(rep.pageInfo && rep.pageInfo.hasNextPage);\nreturn {\n  json: {\n    sql,\n    orders: nodes.length,\n    total_commission: Math.round(total * 100) / 100,\n    has_more: hasMore\n  }\n};"
+      }
     },
     {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "={{ $json.sql }}",
-        "options": {}
-      },
       "id": "a5000001-0000-4000-8000-000000000005",
       "name": "Save Conversions",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [880, 0],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_ME",
-          "name": "Postgres"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Ringkasan mingguan dihitung dari DB (data sudah ditarik harian) — tidak tarik API dua kali.\nreturn {\n  json: {\n    sql: \"SELECT COALESCE(SUM(commission),0)::numeric(14,2) AS total, COUNT(*)::int AS orders FROM conversions WHERE ts >= now() - interval '7 days'\"\n  }\n};"
-      },
-      "id": "a5000001-0000-4000-8000-000000000012",
-      "name": "Build Weekly SQL",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [880, 220]
-    },
-    {
+      "position": [
+        880,
+        0
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "={{ $json.sql }}",
         "options": {}
       },
-      "id": "a5000001-0000-4000-8000-000000000013",
-      "name": "Weekly Aggregate",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [1100, 220],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a5000001-0000-4000-8000-000000000012",
+      "name": "Build Weekly SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        220
+      ],
+      "parameters": {
+        "jsCode": "// Ringkasan mingguan dihitung dari DB (data sudah ditarik harian) — tidak tarik API dua kali.\nreturn {\n  json: {\n    sql: \"SELECT COALESCE(SUM(commission),0)::numeric(14,2) AS total, COUNT(*)::int AS orders FROM conversions WHERE ts >= now() - interval '7 days'\"\n  }\n};"
+      }
+    },
+    {
+      "id": "a5000001-0000-4000-8000-000000000013",
+      "name": "Weekly Aggregate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        220
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "tOnurKW7p4nLpOy5",
+          "name": "Postgres"
+        }
+      }
+    },
+    {
+      "id": "a5000001-0000-4000-8000-000000000006",
+      "name": "Telegram Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1320,
+        220
+      ],
       "parameters": {
         "method": "POST",
         "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
@@ -148,13 +192,40 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '📊 Laporan mingguan invest-nyawit\\n\\nOrder: ' + ($json.orders || 0) + '\\nKomisi: Rp' + ($json.total || 0) }) }}",
         "options": {}
-      },
-      "id": "a5000001-0000-4000-8000-000000000006",
-      "name": "Telegram Summary",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1320, 220],
-      "onError": "continueRegularOutput"
+      }
+    },
+    {
+      "id": "af81382c-8429-4f59-868a-31ee7894a975",
+      "name": "Report API Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!($env.SHOPEE_AFFILIATE_APPID && $env.SHOPEE_AFFILIATE_SECRET) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -162,7 +233,7 @@
       "main": [
         [
           {
-            "node": "Build Report Request",
+            "node": "Report API Ready?",
             "type": "main",
             "index": 0
           }
@@ -239,14 +310,397 @@
       "main": [
         []
       ]
+    },
+    "Report API Ready?": {
+      "main": [
+        [
+          {
+            "node": "Build Report Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Daily Pull": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Weekly Summary Trigger": {
+      "recurrenceRules": [
+        286
+      ],
+      "recurrenceRuleSignatures": [
+        "days:7"
+      ]
+    }
   },
   "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "dNxvjZI6eRlj6heX",
+      "projectId": "yH40ow4k04WIR3UG",
+      "project": {
+        "id": "yH40ow4k04WIR3UG",
+        "name": "Owner Nyawit <admin@investnyawit.local>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
+        "createdAt": "2026-10-12T05:45:32.131Z",
+        "updatedAt": "2026-10-12T05:47:57.877Z"
+      },
+      "createdAt": "2026-10-12T05:51:39.318Z",
+      "updatedAt": "2026-10-12T05:51:39.318Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "02a08665-de02-4cff-84bd-2a2a5a48b413",
+    "workflowId": "dNxvjZI6eRlj6heX",
+    "nodes": [
+      {
+        "id": "a5000001-0000-4000-8000-000000000001",
+        "name": "Daily Pull",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "days",
+                "daysInterval": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000011",
+        "name": "Weekly Summary Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          220
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "days",
+                "daysInterval": 7
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000002",
+        "name": "Build Report Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "// Tarik laporan konversi Shopee (dijalankan HARIAN, jendela 7 hari untuk jaring pengaman\n// kalau 1 hari gagal). Duplikat ditahan unique index (checkout_id, ts) di tabel conversions.\nconst crypto = require('crypto');\nconst appid = $env.SHOPEE_AFFILIATE_APPID;\nconst secret = $env.SHOPEE_AFFILIATE_SECRET;\nif (!appid || !secret) throw new Error('SHOPEE_AFFILIATE_APPID/SECRET belum diisi');\n\nconst end = Math.floor(Date.now() / 1000);\nconst start = end - 7 * 24 * 3600;\nconst query = `{\n  conversionReport(purchaseTimeStart: ${start}, purchaseTimeEnd: ${end}, scrollId: \"\", limit: 500, orderStatus: ALL) {\n    nodes {\n      checkoutId\n      purchaseTime\n      estimatedTotalCommission\n      grossCommission\n      cappedCommission\n      totalBrandCommission\n    }\n    pageInfo { scrollId hasNextPage }\n  }\n}`;\nconst body = JSON.stringify({ query });\nconst ts = Math.floor(Date.now() / 1000);\nconst sign = crypto.createHash('sha256').update(appid + String(ts) + body + secret).digest('hex');\nreturn {\n  json: {\n    body,\n    auth: `SHA256 Credential=${appid}, Signature=${sign}, Timestamp=${ts}`,\n    start,\n    end\n  }\n};"
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000003",
+        "name": "Shopee conversionReport",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://open-api.affiliate.shopee.co.id/graphql",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ $json.auth }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "string",
+          "body": "={{ $json.body }}",
+          "options": {
+            "timeout": 30000
+          }
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000004",
+        "name": "Aggregate Report",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "jsCode": "// Agregat + simpan ke tabel conversions + siap ringkasan Telegram.\nconst rep = ($json.data && $json.data.conversionReport) || {};\nconst nodes = rep.nodes || [];\nlet total = 0;\nconst rows = [];\nconst esc = s => String(s ?? '').replace(/'/g, \"''\");\nfor (const n of nodes) {\n  const comm = Number(n.estimatedTotalCommission || 0);\n  total += comm;\n  rows.push(`('${esc(n.checkoutId)}', ${comm}, to_timestamp(${Number(n.purchaseTime || 0)}), '${esc(JSON.stringify(n))}')`);\n}\nlet sql = 'SELECT 1';\nif (rows.length) {\n  sql = `INSERT INTO conversions (checkout_id, commission, ts, raw) VALUES ${rows.join(',')} ON CONFLICT DO NOTHING;`;\n}\nconst hasMore = !!(rep.pageInfo && rep.pageInfo.hasNextPage);\nreturn {\n  json: {\n    sql,\n    orders: nodes.length,\n    total_commission: Math.round(total * 100) / 100,\n    has_more: hasMore\n  }\n};"
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000005",
+        "name": "Save Conversions",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          880,
+          0
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.sql }}",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000012",
+        "name": "Build Weekly SQL",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          220
+        ],
+        "parameters": {
+          "jsCode": "// Ringkasan mingguan dihitung dari DB (data sudah ditarik harian) — tidak tarik API dua kali.\nreturn {\n  json: {\n    sql: \"SELECT COALESCE(SUM(commission),0)::numeric(14,2) AS total, COUNT(*)::int AS orders FROM conversions WHERE ts >= now() - interval '7 days'\"\n  }\n};"
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000013",
+        "name": "Weekly Aggregate",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1100,
+          220
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.sql }}",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a5000001-0000-4000-8000-000000000006",
+        "name": "Telegram Summary",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "onError": "continueRegularOutput",
+        "position": [
+          1320,
+          220
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '📊 Laporan mingguan invest-nyawit\\n\\nOrder: ' + ($json.orders || 0) + '\\nKomisi: Rp' + ($json.total || 0) }) }}",
+          "options": {}
+        }
+      },
+      {
+        "id": "af81382c-8429-4f59-868a-31ee7894a975",
+        "name": "Report API Ready?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ !!($env.SHOPEE_AFFILIATE_APPID && $env.SHOPEE_AFFILIATE_SECRET) }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Daily Pull": {
+        "main": [
+          [
+            {
+              "node": "Report API Ready?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Weekly Summary Trigger": {
+        "main": [
+          [
+            {
+              "node": "Build Weekly SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Weekly SQL": {
+        "main": [
+          [
+            {
+              "node": "Weekly Aggregate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Weekly Aggregate": {
+        "main": [
+          [
+            {
+              "node": "Telegram Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Report Request": {
+        "main": [
+          [
+            {
+              "node": "Shopee conversionReport",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Shopee conversionReport": {
+        "main": [
+          [
+            {
+              "node": "Aggregate Report",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregate Report": {
+        "main": [
+          [
+            {
+              "node": "Save Conversions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Conversions": {
+        "main": [
+          []
+        ]
+      },
+      "Report API Ready?": {
+        "main": [
+          [
+            {
+              "node": "Build Report Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Owner Nyawit",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-10-13T04:14:56.873Z",
+    "updatedAt": "2026-10-13T04:14:56.873Z",
+    "workflowPublishHistory": [
+      {
+        "id": 39,
+        "workflowId": "dNxvjZI6eRlj6heX",
+        "versionId": "02a08665-de02-4cff-84bd-2a2a5a48b413",
+        "event": "activated",
+        "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
+        "createdAt": "2026-10-13T04:14:56.978Z"
+      }
+    ]
   }
 }

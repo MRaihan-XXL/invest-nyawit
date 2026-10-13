@@ -1,7 +1,26 @@
 {
+  "id": "MOUN9WujgBXqQQrE",
   "name": "04-publish",
+  "description": null,
+  "active": true,
+  "activeVersionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+  "createdAt": "2026-10-12T05:51:39.318Z",
+  "updatedAt": "2026-10-13T04:08:58.815Z",
+  "isArchived": false,
+  "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+  "versionCounter": 2,
+  "sourceWorkflowId": null,
+  "triggerCount": 2,
   "nodes": [
     {
+      "id": "a4000001-0000-4000-8000-000000000001",
+      "name": "Every 30m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -11,14 +30,17 @@
             }
           ]
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000001",
-      "name": "Every 30m",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 0]
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000002",
+      "name": "Every 18h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        320
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -28,32 +50,38 @@
             }
           ]
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000002",
-      "name": "Every 18h",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 320]
+      }
     },
     {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at > now() - interval '1 day') < 15 ORDER BY s.id LIMIT 1;",
-        "options": {}
-      },
       "id": "a4000001-0000-4000-8000-000000000003",
       "name": "Pick Approved",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
+        "options": {}
+      },
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000004",
+      "name": "Script Waiting?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -75,42 +103,51 @@
           "combinator": "and"
         },
         "options": {}
-      },
-      "id": "a4000001-0000-4000-8000-000000000004",
-      "name": "Script Waiting?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [440, 0]
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000005",
+      "name": "Load Tokens",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        -60
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT platform, access_token, refresh_token, expires_at, extra FROM tokens;",
         "options": {}
       },
-      "id": "a4000001-0000-4000-8000-000000000005",
-      "name": "Load Tokens",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [660, -60],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
-      "parameters": {
-        "jsCode": "// Gabungkan script + token; siapkan request pertama TikTok (creator_info).\nconst script = $('Pick Approved').first().json;\nconst tokens = {};\nfor (const t of $input.all()) {\n  if (t.json.platform) tokens[t.json.platform] = t.json;\n}\nconst tt = tokens.tiktok;\nconst ig = tokens.instagram;\nif (!tt || !tt.access_token) throw new Error('Token TikTok belum diisi di tabel tokens');\nif (!ig || !ig.access_token) throw new Error('Token Instagram belum diisi di tabel tokens');\n\nconst hashtags = /#[\\w]+/.test(script.caption || '') ? '' : '#fyp #viral #rekomendasi';\nconst caption = ((script.title || script.hook || '') + '\\n\\n' + (script.caption || '') + ' ' + hashtags + '\\n\\nLink di bio 🔗').trim().slice(0, 2000);\nconst videoUrl = $env.PUBLIC_MEDIA_URL + script.media_file;\n\nreturn {\n  json: {\n    script_id: script.id,\n    media_file: script.media_file,\n    video_url: videoUrl,\n    caption,\n    tt_access: tt.access_token,\n    ig_access: ig.access_token,\n    ig_user_id: (ig.extra && (ig.extra.ig_user_id || ig.extra.user_id)) || null\n  }\n};"
-      },
       "id": "a4000001-0000-4000-8000-000000000006",
       "name": "Prepare Publish",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, -60]
+      "position": [
+        880,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "// Gabungkan script + token; siapkan request pertama TikTok (creator_info).\nconst script = $('Pick Approved').first().json;\nconst tokens = {};\nfor (const t of $input.all()) {\n  if (t.json.platform) tokens[t.json.platform] = t.json;\n}\nconst tt = tokens.tiktok;\nconst ig = tokens.instagram;\nif (!tt || !tt.access_token) throw new Error('Token TikTok belum diisi di tabel tokens');\nif (!ig || !ig.access_token) throw new Error('Token Instagram belum diisi di tabel tokens');\n\nconst hashtags = /#[\\w]+/.test(script.caption || '') ? '' : '#fyp #viral #rekomendasi';\nconst caption = ((script.title || script.hook || '') + '\\n\\n' + (script.caption || '') + ' ' + hashtags + '\\n\\nLink di bio 🔗').trim().slice(0, 2000);\nconst videoSize = Number(script.media_bytes) || 0;\nif (videoSize <= 0) throw new Error('media_bytes kosong untuk script ' + script.id);\n\nreturn {\n  json: {\n    script_id: script.id,\n    media_file: script.media_file,\n    video_size: videoSize,\n    caption,\n    tt_access: tt.access_token,\n    ig_access: ig.access_token,\n    ig_user_id: (ig.extra && (ig.extra.ig_user_id || ig.extra.user_id)) || null\n  }\n};"
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000007",
+      "name": "TikTok Creator Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -60
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
@@ -133,24 +170,31 @@
         "options": {
           "timeout": 30000
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000007",
-      "name": "TikTok Creator Info",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1100, -60]
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Bangun payload TikTok (mode inbox) + IG container.\nconst ctx = $('Prepare Publish').first().json;\nconst info = ($json.data && $json.data.creator_info) || {};\nconst opts = info.privacy_level_options || ['SELF_ONLY'];\nconst privacy = opts.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : opts[0];\n\nconst tiktokInit = {\n  post_info: {\n    title: ctx.caption.slice(0, 2200),\n    privacy_level: privacy,\n    disable_duet: false,\n    disable_stitch: false,\n    disable_comment: false\n  },\n  source_info: {\n    source: 'PULL_FROM_URL',\n    video_url: ctx.video_url\n  }\n};\n\nconst igContainer = {\n  media_type: 'REELS',\n  video_url: ctx.video_url,\n  caption: ctx.caption.slice(0, 2000),\n  share_to_feed: true\n};\n\nreturn {\n  json: {\n    ...ctx,\n    privacy,\n    tiktokInit,\n    igContainer,\n    tt_access: ctx.tt_access,\n    ig_access: ctx.ig_access,\n    ig_user_id: ctx.ig_user_id\n  }\n};"
-      },
       "id": "a4000001-0000-4000-8000-000000000008",
       "name": "Build Requests",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, -60]
+      "position": [
+        1320,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "// Bangun payload TikTok (mode inbox FILE_UPLOAD) + IG container.\nconst ctx = $('Prepare Publish').first().json;\nconst info = ($json.data && $json.data.creator_info) || {};\nconst opts = info.privacy_level_options || ['SELF_ONLY'];\nconst privacy = opts.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : opts[0];\n\nif (ctx.video_size > 64 * 1024 * 1024) throw new Error('video > 64MB wajib chunk: ' + ctx.video_size);\n\nconst tiktokInit = {\n  post_info: {\n    title: ctx.caption.slice(0, 2200),\n    privacy_level: privacy,\n    disable_duet: false,\n    disable_stitch: false,\n    disable_comment: false\n  },\n  source_info: {\n    source: 'FILE_UPLOAD',\n    video_size: ctx.video_size,\n    chunk_size: ctx.video_size,\n    total_chunk_count: 1\n  }\n};\n\nconst igContainer = {\n  media_type: 'REELS',\n  caption: ctx.caption.slice(0, 2000),\n  share_to_feed: true\n};\n\nreturn {\n  json: {\n    ...ctx,\n    privacy,\n    tiktokInit,\n    igContainer,\n    tt_access: ctx.tt_access,\n    ig_access: ctx.ig_access,\n    ig_user_id: ctx.ig_user_id\n  }\n};"
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000009",
+      "name": "TikTok Inbox Init",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1540,
+        -60
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
@@ -173,70 +217,105 @@
         "options": {
           "timeout": 60000
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000009",
-      "name": "TikTok Inbox Init",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1540, -60],
-      "onError": "continueRegularOutput"
+      }
     },
     {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify(Object.assign({}, $('Build Requests').item.json.igContainer, { access_token: $('Build Requests').item.json.ig_access })) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
       "id": "a4000001-0000-4000-8000-000000000010",
       "name": "IG Create Container",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1760, -60],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "position": [
+        1760,
+        -60
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "video",
+              "inputDataFieldName": "data"
+            },
+            {
+              "parameterType": "formUpload",
+              "name": "media_type",
+              "value": "REELS"
+            },
+            {
+              "parameterType": "formUpload",
+              "name": "upload_type",
+              "value": "VIDEO_FILE"
+            },
+            {
+              "parameterType": "formUpload",
+              "name": "caption",
+              "value": "={{ $('Build Requests').item.json.igContainer.caption }}"
+            },
+            {
+              "parameterType": "formUpload",
+              "name": "access_token",
+              "value": "={{ $('Build Requests').item.json.ig_access }}"
+            },
+            {
+              "parameterType": "formUpload",
+              "name": "share_to_feed",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
-      },
       "id": "a4000001-0000-4000-8000-000000000011",
       "name": "Build Post Records",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1980, -60]
+      "position": [
+        1980,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000012",
+      "name": "Insert Posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        -60
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "={{ $json.sql }}",
         "options": {}
       },
-      "id": "a4000001-0000-4000-8000-000000000012",
-      "name": "Insert Posts",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [2200, -60],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000013",
+      "name": "Mark Script Posted",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        -60
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE scripts SET status = 'posted', updated_at = now() WHERE id = $1;",
@@ -244,100 +323,54 @@
           "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
         }
       },
-      "id": "a4000001-0000-4000-8000-000000000013",
-      "name": "Mark Script Posted",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [2420, -60],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000014",
+      "name": "Wait IG Transcode",
+      "webhookId": "a4000001-wait-ig-1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        -60
+      ],
       "parameters": {
         "amount": 90,
         "unit": "seconds"
-      },
-      "id": "a4000001-0000-4000-8000-000000000014",
-      "name": "Wait IG Transcode",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [2640, -60],
-      "webhookId": "a4000001-wait-ig-1"
+      }
     },
     {
-      "parameters": {
-        "method": "GET",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
       "id": "a4000001-0000-4000-8000-000000000015",
       "name": "IG Status Check",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2860, -60]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json.status_code }}",
-              "rightValue": "FINISHED",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "a4000001-0000-4000-8000-000000000021",
-      "name": "IG Ready?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [3080, -60]
-    },
-    {
-      "parameters": {
-        "amount": 60,
-        "unit": "seconds"
-      },
-      "id": "a4000001-0000-4000-8000-000000000022",
-      "name": "Wait IG Retry",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [3080, 100],
-      "webhookId": "a4000001-wait-ig-2"
-    },
-    {
+      "position": [
+        2860,
+        -60
+      ],
       "parameters": {
         "method": "GET",
         "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
         "options": {
           "timeout": 30000
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000023",
-      "name": "IG Status Check 2",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [3300, 100]
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000021",
+      "name": "IG Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3080,
+        -60
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -359,14 +392,81 @@
           "combinator": "and"
         },
         "options": {}
-      },
+      }
+    },
+    {
+      "id": "a4000001-0000-4000-8000-000000000022",
+      "name": "Wait IG Retry",
+      "webhookId": "a4000001-wait-ig-2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3080,
+        100
+      ],
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "a4000001-0000-4000-8000-000000000023",
+      "name": "IG Status Check 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3300,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
       "id": "a4000001-0000-4000-8000-000000000024",
       "name": "IG Ready 2?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [3520, 100]
+      "position": [
+        3520,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status_code }}",
+              "rightValue": "FINISHED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000025",
+      "name": "IG Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3740,
+        -60
+      ],
       "parameters": {
         "method": "POST",
         "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media_publish",
@@ -385,14 +485,17 @@
         "options": {
           "timeout": 60000
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000025",
-      "name": "IG Publish",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [3740, -60]
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000026",
+      "name": "IG Mark Published",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3960,
+        -60
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE posts SET status = 'published', error = NULL WHERE script_id = $1 AND platform = 'instagram';",
@@ -400,19 +503,22 @@
           "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
         }
       },
-      "id": "a4000001-0000-4000-8000-000000000026",
-      "name": "IG Mark Published",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [3960, -60],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000027",
+      "name": "IG Mark Timeout",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3740,
+        100
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE posts SET status = 'failed', error = 'IG transcode timeout - publish manual dari app' WHERE script_id = $1 AND platform = 'instagram' AND status = 'submitted';",
@@ -420,47 +526,57 @@
           "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
         }
       },
-      "id": "a4000001-0000-4000-8000-000000000027",
-      "name": "IG Mark Timeout",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [3740, 100],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000016",
+      "name": "Load Tokens Refresh",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        320
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT platform, access_token, refresh_token, expires_at, extra FROM tokens;",
         "options": {}
       },
-      "id": "a4000001-0000-4000-8000-000000000016",
-      "name": "Load Tokens Refresh",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [220, 320],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
         }
       }
     },
     {
-      "parameters": {
-        "jsCode": "// Refresh token TikTok (POST form) & Instagram (GET ig_refresh_token).\nconst out = [];\nfor (const item of $input.all()) {\n  const t = item.json;\n  if (t.platform === 'tiktok') {\n    const body = new URLSearchParams({\n      client_key: $env.TIKTOK_CLIENT_KEY || '',\n      client_secret: $env.TIKTOK_CLIENT_SECRET || '',\n      grant_type: 'refresh_token',\n      refresh_token: t.refresh_token || ''\n    }).toString();\n    out.push({\n      json: {\n        platform: 'tiktok',\n        method: 'POST',\n        url: 'https://open.tiktokapis.com/v2/oauth/token/',\n        contentType: 'application/x-www-form-urlencoded',\n        body,\n        headers: []\n      }\n    });\n  } else if (t.platform === 'instagram') {\n    out.push({\n      json: {\n        platform: 'instagram',\n        method: 'GET',\n        url: 'https://graph.facebook.com/v21.0/oauth/access_token?grant_type=ig_refresh_token&fb_exchange_token=' + encodeURIComponent(t.access_token),\n        contentType: '',\n        body: '',\n        headers: []\n      }\n    });\n  }\n}\nreturn out;"
-      },
       "id": "a4000001-0000-4000-8000-000000000017",
       "name": "Build Refresh Requests",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 320]
+      "position": [
+        440,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Refresh token TikTok (POST form) & Instagram (GET ig_refresh_token).\nconst out = [];\nfor (const item of $input.all()) {\n  const t = item.json;\n  if (t.platform === 'tiktok') {\n    const body = new URLSearchParams({\n      client_key: $env.TIKTOK_CLIENT_KEY || '',\n      client_secret: $env.TIKTOK_CLIENT_SECRET || '',\n      grant_type: 'refresh_token',\n      refresh_token: t.refresh_token || ''\n    }).toString();\n    out.push({\n      json: {\n        platform: 'tiktok',\n        method: 'POST',\n        url: 'https://open.tiktokapis.com/v2/oauth/token/',\n        contentType: 'application/x-www-form-urlencoded',\n        body,\n        headers: []\n      }\n    });\n  } else if (t.platform === 'instagram') {\n    out.push({\n      json: {\n        platform: 'instagram',\n        method: 'GET',\n        url: 'https://graph.facebook.com/v21.0/oauth/access_token?grant_type=ig_refresh_token&fb_exchange_token=' + encodeURIComponent(t.access_token),\n        contentType: '',\n        body: '',\n        headers: []\n      }\n    });\n  }\n}\nreturn out;"
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000018",
+      "name": "Refresh Tokens",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        660,
+        320
+      ],
       "parameters": {
         "method": "={{ $json.method }}",
         "url": "={{ $json.url }}",
@@ -479,25 +595,30 @@
         "options": {
           "timeout": 30000
         }
-      },
-      "id": "a4000001-0000-4000-8000-000000000018",
-      "name": "Refresh Tokens",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [660, 320],
-      "onError": "continueRegularOutput"
+      }
     },
     {
-      "parameters": {
-        "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').item.json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
-      },
       "id": "a4000001-0000-4000-8000-000000000019",
       "name": "Parse Refresh Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 320]
+      "position": [
+        880,
+        320
+      ],
+      "parameters": {
+        "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').item.json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
+      }
     },
     {
+      "id": "a4000001-0000-4000-8000-000000000020",
+      "name": "Save Refreshed Tokens",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        320
+      ],
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE tokens SET access_token = $1, refresh_token = CASE WHEN $2 = '' THEN refresh_token ELSE $2 END, expires_at = $3, updated_at = now() WHERE platform = $4;",
@@ -505,15 +626,88 @@
           "queryReplacement": "={{ [ $json.access, $json.refresh, $json.exp, $json.platform ] }}"
         }
       },
-      "id": "a4000001-0000-4000-8000-000000000020",
-      "name": "Save Refreshed Tokens",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [1100, 320],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_ME",
+          "id": "tOnurKW7p4nLpOy5",
           "name": "Postgres"
+        }
+      }
+    },
+    {
+      "id": "bad983ea-0e0b-4a9e-b401-683fb432e359",
+      "name": "Fetch Upload Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "f98df7d8-20c4-4f14-9b8a-dda86cbcd26f",
+      "name": "TikTok Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        260
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('TikTok Inbox Init').item.json.data.upload_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Range",
+              "value": "=bytes 0-{{ $('Build Requests').item.json.video_size - 1 }}/{{ $('Build Requests').item.json.video_size }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "9b513f42-ddbd-43a0-8fdc-5581169d6ff7",
+      "name": "Fetch IG Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        -220
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+        "options": {
+          "timeout": 300000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
         }
       }
     }
@@ -592,11 +786,6 @@
             "node": "TikTok Inbox Init",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "IG Create Container",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -605,7 +794,7 @@
       "main": [
         [
           {
-            "node": "Build Post Records",
+            "node": "Fetch Upload Video",
             "type": "main",
             "index": 0
           }
@@ -790,14 +979,1132 @@
           }
         ]
       ]
+    },
+    "Fetch Upload Video": {
+      "main": [
+        [
+          {
+            "node": "TikTok Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok Upload": {
+      "main": [
+        [
+          {
+            "node": "Fetch IG Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch IG Video": {
+      "main": [
+        [
+          {
+            "node": "IG Create Container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG Create Container": {
+      "main": [
+        [
+          {
+            "node": "Build Post Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Every 30m": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Every 18h": {
+      "recurrenceRules": [
+        8
+      ],
+      "recurrenceRuleSignatures": [
+        "hours:18"
+      ]
+    }
   },
   "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": false
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "MOUN9WujgBXqQQrE",
+      "projectId": "yH40ow4k04WIR3UG",
+      "project": {
+        "id": "yH40ow4k04WIR3UG",
+        "name": "Owner Nyawit <admin@investnyawit.local>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
+        "createdAt": "2026-10-12T05:45:32.131Z",
+        "updatedAt": "2026-10-12T05:47:57.877Z"
+      },
+      "createdAt": "2026-10-12T05:51:39.318Z",
+      "updatedAt": "2026-10-12T05:51:39.318Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+    "workflowId": "MOUN9WujgBXqQQrE",
+    "nodes": [
+      {
+        "id": "a4000001-0000-4000-8000-000000000001",
+        "name": "Every 30m",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 30
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000002",
+        "name": "Every 18h",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          320
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "hours",
+                "hoursInterval": 18
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000003",
+        "name": "Pick Approved",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000004",
+        "name": "Script Waiting?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.id }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000005",
+        "name": "Load Tokens",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          660,
+          -60
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT platform, access_token, refresh_token, expires_at, extra FROM tokens;",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000006",
+        "name": "Prepare Publish",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          -60
+        ],
+        "parameters": {
+          "jsCode": "// Gabungkan script + token; siapkan request pertama TikTok (creator_info).\nconst script = $('Pick Approved').first().json;\nconst tokens = {};\nfor (const t of $input.all()) {\n  if (t.json.platform) tokens[t.json.platform] = t.json;\n}\nconst tt = tokens.tiktok;\nconst ig = tokens.instagram;\nif (!tt || !tt.access_token) throw new Error('Token TikTok belum diisi di tabel tokens');\nif (!ig || !ig.access_token) throw new Error('Token Instagram belum diisi di tabel tokens');\n\nconst hashtags = /#[\\w]+/.test(script.caption || '') ? '' : '#fyp #viral #rekomendasi';\nconst caption = ((script.title || script.hook || '') + '\\n\\n' + (script.caption || '') + ' ' + hashtags + '\\n\\nLink di bio 🔗').trim().slice(0, 2000);\nconst videoSize = Number(script.media_bytes) || 0;\nif (videoSize <= 0) throw new Error('media_bytes kosong untuk script ' + script.id);\n\nreturn {\n  json: {\n    script_id: script.id,\n    media_file: script.media_file,\n    video_size: videoSize,\n    caption,\n    tt_access: tt.access_token,\n    ig_access: ig.access_token,\n    ig_user_id: (ig.extra && (ig.extra.ig_user_id || ig.extra.user_id)) || null\n  }\n};"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000007",
+        "name": "TikTok Creator Info",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1100,
+          -60
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $json.tt_access }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={}",
+          "options": {
+            "timeout": 30000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000008",
+        "name": "Build Requests",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1320,
+          -60
+        ],
+        "parameters": {
+          "jsCode": "// Bangun payload TikTok (mode inbox FILE_UPLOAD) + IG container.\nconst ctx = $('Prepare Publish').first().json;\nconst info = ($json.data && $json.data.creator_info) || {};\nconst opts = info.privacy_level_options || ['SELF_ONLY'];\nconst privacy = opts.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : opts[0];\n\nif (ctx.video_size > 64 * 1024 * 1024) throw new Error('video > 64MB wajib chunk: ' + ctx.video_size);\n\nconst tiktokInit = {\n  post_info: {\n    title: ctx.caption.slice(0, 2200),\n    privacy_level: privacy,\n    disable_duet: false,\n    disable_stitch: false,\n    disable_comment: false\n  },\n  source_info: {\n    source: 'FILE_UPLOAD',\n    video_size: ctx.video_size,\n    chunk_size: ctx.video_size,\n    total_chunk_count: 1\n  }\n};\n\nconst igContainer = {\n  media_type: 'REELS',\n  caption: ctx.caption.slice(0, 2000),\n  share_to_feed: true\n};\n\nreturn {\n  json: {\n    ...ctx,\n    privacy,\n    tiktokInit,\n    igContainer,\n    tt_access: ctx.tt_access,\n    ig_access: ctx.ig_access,\n    ig_user_id: ctx.ig_user_id\n  }\n};"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000009",
+        "name": "TikTok Inbox Init",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "onError": "continueRegularOutput",
+        "position": [
+          1540,
+          -60
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $json.tt_access }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.tiktokInit) }}",
+          "options": {
+            "timeout": 60000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000010",
+        "name": "IG Create Container",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "onError": "continueRegularOutput",
+        "position": [
+          1760,
+          -60
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "parameterType": "formBinaryData",
+                "name": "video",
+                "inputDataFieldName": "data"
+              },
+              {
+                "parameterType": "formUpload",
+                "name": "media_type",
+                "value": "REELS"
+              },
+              {
+                "parameterType": "formUpload",
+                "name": "upload_type",
+                "value": "VIDEO_FILE"
+              },
+              {
+                "parameterType": "formUpload",
+                "name": "caption",
+                "value": "={{ $('Build Requests').item.json.igContainer.caption }}"
+              },
+              {
+                "parameterType": "formUpload",
+                "name": "access_token",
+                "value": "={{ $('Build Requests').item.json.ig_access }}"
+              },
+              {
+                "parameterType": "formUpload",
+                "name": "share_to_feed",
+                "value": "true"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 300000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000011",
+        "name": "Build Post Records",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1980,
+          -60
+        ],
+        "parameters": {
+          "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000012",
+        "name": "Insert Posts",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2200,
+          -60
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.sql }}",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000013",
+        "name": "Mark Script Posted",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2420,
+          -60
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE scripts SET status = 'posted', updated_at = now() WHERE id = $1;",
+          "options": {
+            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          }
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000014",
+        "name": "Wait IG Transcode",
+        "webhookId": "a4000001-wait-ig-1",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          2640,
+          -60
+        ],
+        "parameters": {
+          "amount": 90,
+          "unit": "seconds"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000015",
+        "name": "IG Status Check",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2860,
+          -60
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+          "options": {
+            "timeout": 30000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000021",
+        "name": "IG Ready?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          3080,
+          -60
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.status_code }}",
+                "rightValue": "FINISHED",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000022",
+        "name": "Wait IG Retry",
+        "webhookId": "a4000001-wait-ig-2",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          3080,
+          100
+        ],
+        "parameters": {
+          "amount": 60,
+          "unit": "seconds"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000023",
+        "name": "IG Status Check 2",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3300,
+          100
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+          "options": {
+            "timeout": 30000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000024",
+        "name": "IG Ready 2?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          3520,
+          100
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.status_code }}",
+                "rightValue": "FINISHED",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000025",
+        "name": "IG Publish",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3740,
+          -60
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media_publish",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ creation_id: $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id, access_token: $('Build Requests').item.json.ig_access }) }}",
+          "options": {
+            "timeout": 60000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000026",
+        "name": "IG Mark Published",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          3960,
+          -60
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE posts SET status = 'published', error = NULL WHERE script_id = $1 AND platform = 'instagram';",
+          "options": {
+            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          }
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000027",
+        "name": "IG Mark Timeout",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          3740,
+          100
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE posts SET status = 'failed', error = 'IG transcode timeout - publish manual dari app' WHERE script_id = $1 AND platform = 'instagram' AND status = 'submitted';",
+          "options": {
+            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          }
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000016",
+        "name": "Load Tokens Refresh",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          220,
+          320
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT platform, access_token, refresh_token, expires_at, extra FROM tokens;",
+          "options": {}
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000017",
+        "name": "Build Refresh Requests",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          440,
+          320
+        ],
+        "parameters": {
+          "jsCode": "// Refresh token TikTok (POST form) & Instagram (GET ig_refresh_token).\nconst out = [];\nfor (const item of $input.all()) {\n  const t = item.json;\n  if (t.platform === 'tiktok') {\n    const body = new URLSearchParams({\n      client_key: $env.TIKTOK_CLIENT_KEY || '',\n      client_secret: $env.TIKTOK_CLIENT_SECRET || '',\n      grant_type: 'refresh_token',\n      refresh_token: t.refresh_token || ''\n    }).toString();\n    out.push({\n      json: {\n        platform: 'tiktok',\n        method: 'POST',\n        url: 'https://open.tiktokapis.com/v2/oauth/token/',\n        contentType: 'application/x-www-form-urlencoded',\n        body,\n        headers: []\n      }\n    });\n  } else if (t.platform === 'instagram') {\n    out.push({\n      json: {\n        platform: 'instagram',\n        method: 'GET',\n        url: 'https://graph.facebook.com/v21.0/oauth/access_token?grant_type=ig_refresh_token&fb_exchange_token=' + encodeURIComponent(t.access_token),\n        contentType: '',\n        body: '',\n        headers: []\n      }\n    });\n  }\n}\nreturn out;"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000018",
+        "name": "Refresh Tokens",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "onError": "continueRegularOutput",
+        "position": [
+          660,
+          320
+        ],
+        "parameters": {
+          "method": "={{ $json.method }}",
+          "url": "={{ $json.url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "={{ $json.contentType || 'application/json' }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "string",
+          "body": "={{ $json.body }}",
+          "options": {
+            "timeout": 30000
+          }
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000019",
+        "name": "Parse Refresh Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          320
+        ],
+        "parameters": {
+          "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').item.json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
+        }
+      },
+      {
+        "id": "a4000001-0000-4000-8000-000000000020",
+        "name": "Save Refreshed Tokens",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1100,
+          320
+        ],
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE tokens SET access_token = $1, refresh_token = CASE WHEN $2 = '' THEN refresh_token ELSE $2 END, expires_at = $3, updated_at = now() WHERE platform = $4;",
+          "options": {
+            "queryReplacement": "={{ [ $json.access, $json.refresh, $json.exp, $json.platform ] }}"
+          }
+        },
+        "credentials": {
+          "postgres": {
+            "id": "tOnurKW7p4nLpOy5",
+            "name": "Postgres"
+          }
+        }
+      },
+      {
+        "id": "bad983ea-0e0b-4a9e-b401-683fb432e359",
+        "name": "Fetch Upload Video",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1540,
+          100
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+          "options": {
+            "timeout": 300000,
+            "response": {
+              "response": {
+                "responseFormat": "file"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "f98df7d8-20c4-4f14-9b8a-dda86cbcd26f",
+        "name": "TikTok Upload",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1540,
+          260
+        ],
+        "parameters": {
+          "method": "PUT",
+          "url": "={{ $('TikTok Inbox Init').item.json.data.upload_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Range",
+                "value": "=bytes 0-{{ $('Build Requests').item.json.video_size - 1 }}/{{ $('Build Requests').item.json.video_size }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "binaryData",
+          "inputDataFieldName": "data",
+          "options": {
+            "timeout": 300000,
+            "response": {
+              "response": {
+                "responseFormat": "text"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "9b513f42-ddbd-43a0-8fdc-5581169d6ff7",
+        "name": "Fetch IG Video",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1760,
+          -220
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+          "options": {
+            "timeout": 300000,
+            "response": {
+              "response": {
+                "responseFormat": "file"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Every 30m": {
+        "main": [
+          [
+            {
+              "node": "Pick Approved",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pick Approved": {
+        "main": [
+          [
+            {
+              "node": "Script Waiting?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Script Waiting?": {
+        "main": [
+          [
+            {
+              "node": "Load Tokens",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Tokens": {
+        "main": [
+          [
+            {
+              "node": "Prepare Publish",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Publish": {
+        "main": [
+          [
+            {
+              "node": "TikTok Creator Info",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "TikTok Creator Info": {
+        "main": [
+          [
+            {
+              "node": "Build Requests",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Requests": {
+        "main": [
+          [
+            {
+              "node": "TikTok Inbox Init",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "TikTok Inbox Init": {
+        "main": [
+          [
+            {
+              "node": "Fetch Upload Video",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Post Records": {
+        "main": [
+          [
+            {
+              "node": "Insert Posts",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insert Posts": {
+        "main": [
+          [
+            {
+              "node": "Mark Script Posted",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Script Posted": {
+        "main": [
+          [
+            {
+              "node": "Wait IG Transcode",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait IG Transcode": {
+        "main": [
+          [
+            {
+              "node": "IG Status Check",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Status Check": {
+        "main": [
+          [
+            {
+              "node": "IG Ready?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Ready?": {
+        "main": [
+          [
+            {
+              "node": "IG Publish",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Wait IG Retry",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait IG Retry": {
+        "main": [
+          [
+            {
+              "node": "IG Status Check 2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Status Check 2": {
+        "main": [
+          [
+            {
+              "node": "IG Ready 2?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Ready 2?": {
+        "main": [
+          [
+            {
+              "node": "IG Publish",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IG Mark Timeout",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Publish": {
+        "main": [
+          [
+            {
+              "node": "IG Mark Published",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Every 18h": {
+        "main": [
+          [
+            {
+              "node": "Load Tokens Refresh",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Tokens Refresh": {
+        "main": [
+          [
+            {
+              "node": "Build Refresh Requests",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Refresh Requests": {
+        "main": [
+          [
+            {
+              "node": "Refresh Tokens",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Refresh Tokens": {
+        "main": [
+          [
+            {
+              "node": "Parse Refresh Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Refresh Result": {
+        "main": [
+          [
+            {
+              "node": "Save Refreshed Tokens",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Upload Video": {
+        "main": [
+          [
+            {
+              "node": "TikTok Upload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "TikTok Upload": {
+        "main": [
+          [
+            {
+              "node": "Fetch IG Video",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch IG Video": {
+        "main": [
+          [
+            {
+              "node": "IG Create Container",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IG Create Container": {
+        "main": [
+          [
+            {
+              "node": "Build Post Records",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Owner Nyawit",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-10-13T04:08:58.818Z",
+    "updatedAt": "2026-10-13T04:08:58.818Z",
+    "workflowPublishHistory": [
+      {
+        "id": 31,
+        "workflowId": "MOUN9WujgBXqQQrE",
+        "versionId": "f355e60a-f7b6-4894-8ae4-39150e45b452",
+        "event": "activated",
+        "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
+        "createdAt": "2026-10-13T04:08:58.918Z"
+      }
+    ]
   }
 }
