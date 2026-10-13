@@ -24,6 +24,10 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
 2. Menu Open API / Developer → buat aplikasi → dapat **APPID + SECRET**.
 3. Catatan: kalau opsi Open API belum muncul, aktifkan dulu Traffic/Content
    creator di dashboard affiliate, atau hubungi support Shopee.
+4. **Opsional** — tanpa APPID/SECRET sistem tetap jalan: WF01 (harvest) & WF05
+   (laporan konversi) melewati cabang API Shopee **diam** (eksekusi tetap sukses).
+   APPID hanya untuk harvest produk otomatis + laporan konversi; begitu kunci diisi
+   di `.env` + recreate n8n, cabang itu otomatis aktif penuh.
 
 ### 0e. TikTok Developer (Content Posting API)
 1. https://developers.tiktok.com → daftar (pakai email, bukan akun spam).
@@ -56,6 +60,13 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
 1. https://www.duckdns.org → login GitHub/Google → buat subdomain, mis. `investmu`.
    Arahkan ke IP VPS.
 2. Catat token untuk Caddy (opsional, auto-renew).
+3. **Domain sekarang opsional.** Telegram WF03 polling lokal (`Schedule 15 detik` →
+   `getUpdates`), bukan webhook — tidak ada `setWebhook`/URL publik untuk Telegram
+   (webhook lama sudah dihapus via `deleteWebhook`). Publish juga upload file lokal
+   (TikTok `FILE_UPLOAD` + IG multipart), bukan tarik URL — jadi **tidak butuh domain
+   terverifikasi / `PUBLIC_MEDIA_URL`**. `https://DOMAIN/...` + tunnel
+   (`scripts/tunnel-up.ps1`) hanya untuk akses remote dashboard opsional
+   (dan redirect URI OAuth TikTok di §0e).
 
 ## 3. Deploy stack
 
@@ -79,8 +90,14 @@ docker compose --env-file .env -f server/docker-compose.yml up -d --build
 Cek: `docker compose --env-file .env -f server/docker-compose.yml ps` (semua Up),
 buka `https://investmu.duckdns.org` → halaman login n8n (user/pass dibuat sekali).
 
-Dashboard: `https://investmu.duckdns.org/stats` (user/pass = `STATS_USER` + kata
-sandi yang tadi di-hash). Link-in-bio publik: `https://investmu.duckdns.org/bio`.
+Dashboard: LAN `http://192.168.18.228:8091/stats` (user/pass = `STATS_USER` + kata
+sandi yang tadi di-hash), atau remote `https://investmu.duckdns.org/stats` lewat tunnel
+(opsional). Link-in-bio publik via GitHub Pages:
+`https://mraihan-xxl.github.io/invest-nyawit/bio.html` (langkah §8).
+
+Kuota harian: `POSTS_PER_DAY_ID=4` di `.env` → maksimal **4 video/hari** (track ID).
+WF04 "Pick Approved" berhenti saat sudah 4 post TikTok/hari, karena limit API TikTok
+= 5 pending/24 jam.
 
 ## 4. Import workflow n8n
 
@@ -88,11 +105,19 @@ sandi yang tadi di-hash). Link-in-bio publik: `https://investmu.duckdns.org/bio`
    folder `workflows/` (termasuk `06-strategy-analyst`).
 2. Di tiap node Postgres (ditandai `REPLACE_ME`) → pilih/isi kredensial:
    host `postgres`, port 5432, DB/user/password = nilai `.env`.
-3. Workflow `03-approval-telegram` → node Telegram Callback → kredensial
-   **Telegram API**: isi bot token dari @BotFather.
+3. Workflow `03-approval-telegram` sekarang **polling lokal, bukan webhook**:
+   Schedule 15 detik → node `Get Updates` (`getUpdates`, offset disimpan di
+   staticData) → routing approval lama. Isi `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`
+   di `.env` (node baca env, bukan kredensial Telegram terpisah). Tidak perlu
+   `setWebhook`, URL publik, atau tunnel untuk Telegram — webhook lama sudah dihapus
+   via `deleteWebhook`.
 4. Activate (toggle) semua workflow.
 
 ## 5. OAuth sekali — isi tabel tokens
+
+> **Wajib untuk publish.** Kalau tabel `tokens` kosong (TikTok / Instagram), WF04 error
+> `Token ... belum diisi di tabel tokens` tiap 30 menit — itu sinyal token belum diisi,
+> bukan bug. Kerjakan langkah OAuth di bawah sekali; refresh token jalan sendiri.
 
 ### TikTok (scope `video.upload`)
 1. Buka link authorize (ganti CLIENT_KEY & DOMAIN):
@@ -150,12 +175,25 @@ ke DB. Langkah ini bisa ditunda — Track ID jalan tanpa ini.
 1. Jalankan manual workflow `01` (Execute Workflow) → cek `SELECT count(*) FROM products;`
 2. Jalankan `02` → harus muncul video preview di Telegram dalam 2–5 menit.
 3. Tap ✅ → jalankan `04` manual → cek TikTok inbox (notifikasi post) + IG feed.
-4. Buka `https://DOMAIN/stats` → KPI terisi (bisa dummy dulu: INSERT 1 baris ke
-   `conversions`) dan `https://DOMAIN/bio` tampil produk.
+   Kalau muncul error `Token ... belum diisi di tabel tokens` → isi token dulu (§5).
+4. Buka dashboard (`http://192.168.18.228:8091/stats` atau `https://DOMAIN/stats`) →
+   KPI terisi (bisa dummy dulu: INSERT 1 baris ke `conversions`) dan link-in-bio
+   GitHub Pages (§8) tampil 15 kartu produk.
 5. Jalankan `06` manual → proposal strategi masuk Telegram; tap ✅ → eksekutor
    (01/02) pakai strategi itu di run berikutnya.
 6. Semua hijau? Biarkan jadwalnya jalan sendiri. Kamu cuma perlu buka Telegram
    5 menit/hari.
+
+## 8. Link-in-bio publik gratis (GitHub Pages)
+
+`docs/bio.html` (15 kartu produk, link afiliasi `s.shopee.co.id`) disajikan gratis
+dari folder `/docs` repo ini — tanpa VPS/domain:
+
+1. Push repo ke GitHub.
+2. Repo → **Settings → Pages** → Source: **Deploy from branch** → branch `main`,
+   folder **`/docs`** → Save.
+3. Tunggu 1–2 menit → `https://mraihan-xxl.github.io/invest-nyawit/bio.html`.
+4. Tempel URL itu sebagai link di bio TikTok/IG (tujuan klik dari video).
 
 ## Troubleshooting cepat
 
@@ -166,5 +204,8 @@ ke DB. Langkah ini bisa ditunda — Track ID jalan tanpa ini.
 | IG container stuck IN_PROGRESS | video > 60 dtk / transcode lambat | tunggu; kalau timeout, cek `SELECT * FROM posts ORDER BY id DESC` |
 | Render gagal "image fetch" | CDN Shopee blokir | otomatis pakai placeholder; ganti gambar kalau sering |
 | Workflow diam tanpa error | kredensial belum di-attach | buka node bertanda REPLACE_ME, pilih credential |
+| WF04 error `Token ... belum diisi di tabel tokens` tiap 30 menit | tabel `tokens` kosong | ikuti langkah OAuth §5 — sinyal token belum diisi, bukan bug |
+| Telegram tidak merespons tap ✅ | polling WF03 tidak jalan | cek `TELEGRAM_BOT_TOKEN` di `.env` + node `Poll Schedule`/`Get Updates` (webhook tidak dipakai) |
+| WF01/WF05 dilewati senyap untuk Shopee | `SHOPEE_AFFILIATE_APPID`/`SECRET` kosong | perilaku fail-soft; isi `.env` + recreate n8n (§0d) |
 | Caddy restart loop di awal | `BASIC_AUTH_HASH` bukan bcrypt | hash ulang dengan `caddy hash-password`; pakai kutip satu di `.env` |
 | `/stats` 401 terus | user/pass salah | cocokkan `STATS_USER` + kata sandi yang di-hash (bukan hash-nya) |

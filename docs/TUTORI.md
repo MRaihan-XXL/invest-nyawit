@@ -55,7 +55,7 @@ Semua jam dalam **WIB** (server pakai TZ Asia/Jakarta):
 | Tarik insights IG + analisis AI | 05:00 (tiap hari) | workflow 06 — diam kalau sehat, nyala kalau ada penurunan |
 | Ringkasan mingguan | Minggu 08:00 | dari workflow 05 |
 
-Quota default per hari: ID 3 + EN 2 (total 5 video). Bisa diubah oleh AI analis
+Quota default per hari: ID 4 + EN 2 (total 6 video). Bisa diubah oleh AI analis
 (lewat tombol approve di Telegram) dalam rentang aman 0–6 ID / 0–4 EN.
 
 **Kenapa 19:00–21:00:** jam prime ID; tapi ingat — video TikTok baru benar-benar

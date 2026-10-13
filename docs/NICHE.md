@@ -27,7 +27,7 @@ penalti, EN tetap jalan, dan sebaliknya.
 - **Akun TikTok lama** (@dewa_gacor20, kosong): **rebrand total** — ganti nama,
   bio, hapus unggahan lama kalau ada. Nama "gacor" tercatat identik komunitas judi
   slot — itu magnet shadowban. Ganti jadi nama finds (mis. @primefinds.id juga).
-- **Frekuensi**: 2–3 video/hari dari sistem + kamu approve.
+- **Frekuensi**: maks 4 video/hari dari sistem + kamu approve.
 
 ## Track EN — demo AI tools / SaaS (muka-bisu)
 
