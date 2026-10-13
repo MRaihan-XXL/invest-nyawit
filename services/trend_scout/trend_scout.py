@@ -62,15 +62,19 @@ def http_get_json(url: str, headers: dict | None = None) -> Any:
 # supaya tidak perlu dependensi psycopg di container ini.
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://dashboard:8091")
+INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 
 def insert_trends_batch(trends: list[dict]) -> dict:
     """Kirim batch tren ke dashboard untuk insert ke DB."""
     try:
         payload = json.dumps({"trends": trends}).encode()
+        headers = {"Content-Type": "application/json"}
+        if INTERNAL_API_TOKEN:
+            headers["X-Internal-Token"] = INTERNAL_API_TOKEN
         req = urllib.request.Request(
             f"{DASHBOARD_URL}/api/trends-ingest",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -83,10 +87,13 @@ def insert_trends_batch(trends: list[dict]) -> dict:
 def update_product_scores() -> dict:
     """Minta dashboard update skor produk berdasarkan tren aktif."""
     try:
+        headers = {"Content-Type": "application/json"}
+        if INTERNAL_API_TOKEN:
+            headers["X-Internal-Token"] = INTERNAL_API_TOKEN
         req = urllib.request.Request(
             f"{DASHBOARD_URL}/api/trends-score",
             data=b"{}",
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -344,6 +351,13 @@ def collect_all() -> dict:
     for t in all_trends:
         s = t["source"]
         summary["by_source"][s] = summary["by_source"].get(s, 0) + 1
+
+    # Top 5 lintas sumber: volume desc (null terakhir), rank asc
+    ranked = sorted(all_trends, key=lambda t: (-(t.get("volume") or 0), t.get("rank") or 99))
+    summary["top5"] = [
+        {"keyword": t["keyword"], "source": t["source"], "volume": t.get("volume"), "rank": t.get("rank")}
+        for t in ranked[:5]
+    ]
 
     print(f"[DONE] {len(all_trends)} tren dari {len(summary['by_source'])} sumber")
     return summary
