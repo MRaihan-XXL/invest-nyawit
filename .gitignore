@@ -1,6 +1,8 @@
 .env
 *.env
 !.env.example
+.tunnel-url
+tunnel-url.txt
 services/render/.venv/
 services/render/out/
 services/render/media/
