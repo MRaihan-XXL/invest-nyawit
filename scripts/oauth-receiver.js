@@ -6,9 +6,28 @@ const path = require('path');
 
 const PORT = 8099;
 const OUT = path.join(process.env.TEMP || '/tmp', 'oauth-callback.json');
+const WELLKNOWN_DIR = path.join(__dirname, '..', 'well-known');
 
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
+  if (u.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true,"service":"oauth-receiver"}');
+    return;
+  }
+  // TikTok URL verification: /.well-known/<file> -> serve dari folder well-known/
+  if (u.pathname.startsWith('/.well-known/')) {
+    const fname = path.basename(u.pathname);
+    const fpath = path.join(WELLKNOWN_DIR, fname);
+    if (fs.existsSync(fpath)) {
+      const content = fs.readFileSync(fpath);
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(content);
+    } else {
+      res.writeHead(404); res.end('not found');
+    }
+    return;
+  }
   if (!u.pathname.startsWith('/oauth/')) {
     res.writeHead(404); res.end('not found'); return;
   }

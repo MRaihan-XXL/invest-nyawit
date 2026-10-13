@@ -22,8 +22,12 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
 ### 0d. Shopee Affiliate Open API
 1. Daftar https://affiliate.shopee.co.id → aktivasi program affiliate.
 2. Menu Open API / Developer → buat aplikasi → dapat **APPID + SECRET**.
-3. Catatan: kalau opsi Open API belum muncul, aktifkan dulu Traffic/Content
-   creator di dashboard affiliate, atau hubungi support Shopee.
+3. **CATATAN PENTING (riset 13/10/2026):** Shopee Open Platform **hanya buka API
+   untuk (a) Shopee Seller** (Individual/Registered Business) dengan ≥30 orders/30 hari
+   di ID, **atau (b) ISV berbadan hukum (PT/CV)**. Affiliate tanpa toko / tanpa PT
+   **tidak memenuhi syarat** — jangan buang waktu daftar Open Platform. Jalur legal:
+   tetap pakai seed/manual (sudah jalan) atau tunggu undangan Shopee Affiliate
+   API (invite-only untuk affiliate volume tinggi). Scraping = against ToS.
 4. **Opsional** — tanpa APPID/SECRET sistem tetap jalan: WF01 (harvest) & WF05
    (laporan konversi) melewati cabang API Shopee **diam** (eksekusi tetap sukses).
    APPID hanya untuk harvest produk otomatis + laporan konversi; begitu kunci diisi
@@ -31,10 +35,23 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
 
 ### 0e. TikTok Developer (Content Posting API)
 1. https://developers.tiktok.com → daftar (pakai email, bukan akun spam).
-2. Create app → tambah produk **Content Posting API** → mode **Direct Post +
-   Inbox** → aktifkan scope `video.upload` (inbox mode, tanpa audit).
-3. Set redirect URI: `https://DOMAIN-KAMU/callback-oauth` (isi setelah VPS jalan).
-4. Catat **Client Key + Client Secret**.
+2. Create app → tambah produk **Content Posting API** → mode **Direct Post + Inbox**
+   → aktifkan scope `video.upload` (inbox mode, tanpa audit).
+3. Set redirect URI: **`https://<TUNNEL_URL>/oauth/tiktok`** — ganti `<TUNNEL_URL>`
+   dengan URL trycloudflare aktif (cek `%TEMP%\tunnel-url.txt` atau `.env` `PUBLIC_BASE_URL`).
+   **Wajib didaftarkan dulu di app console** (menu Redirect URIs) sebelum OAuth flow
+   bisa mengembalikan `code` — kalau belum terdaftar, callback datang tapi `params` kosong.
+4. Catat **Client Key + Client Secret** → isi `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET` di `.env`.
+5. **URL verification (untuk submit review Live):** app console → URL properties →
+   Verify by URL prefix → unduh file signature (mis. `tiktok-developer-site-verification.txt`)
+   → taruh di folder `well-known/` di repo ini → file otomatis disajikan via
+   `https://<TUNNEL_URL>/.well-known/<nama-file>` (Caddy → oauth-receiver). Verifikasi
+   URL ini wajib sebelum Content Posting API bisa dipakai di mode Live.
+6. **Review:** app review → tambahkan produk Content Posting API + Login Kit →
+   upload demo video (pakai `test-pro-v1.mp4` atau hasil render) → Submit for review.
+   Review bisa 1–4 minggu. Individual developer account (tanpa badan usaha) bisa
+   submit review — business verification (org) hanya wajib untuk mini games/mini dramas
+   atau saat butuh skala besar.
 
 ### 0f. Instagram Graph API
 1. https://developers.facebook.com → Create App → tipe **Business** →
@@ -119,20 +136,27 @@ WF04 "Pick Approved" berhenti saat sudah 4 post TikTok/hari, karena limit API Ti
 > `Token ... belum diisi di tabel tokens` tiap 30 menit — itu sinyal token belum diisi,
 > bukan bug. Kerjakan langkah OAuth di bawah sekali; refresh token jalan sendiri.
 
+**Cara kerja receiver:** `scripts/oauth-receiver.js` jalan sebagai background process
+di port 8099 (host). Caddy (`:80` block) meneruskan `/oauth/*` dan `/.well-known/*`
+ke `host.docker.internal:8099`. Callback disimpan ke `%TEMP%\oauth-callback.json`.
+Receiver punya endpoint `/health` untuk watchdog.
+
 ### TikTok (scope `video.upload`)
-1. Buka link authorize (ganti CLIENT_KEY & DOMAIN):
+1. Pastikan redirect URI `https://<TUNNEL_URL>/oauth/tiktok` **sudah didaftarkan** di
+   app console (lihat §0e langkah 3). Kalau belum, callback datang tapi `params` kosong.
+2. Buka link authorize (ganti CLIENT_KEY & TUNNEL_URL):
    ```
-   https://www.tiktok.com/v2/auth/authorize/?client_key=CLIENT_KEY&scope=video.upload&response_type=code&redirect_uri=https://DOMAIN-KAMU/callback-oauth&state=xyz
+   https://www.tiktok.com/v2/auth/authorize/?client_key=CLIENT_KEY&scope=video.upload&response_type=code&redirect_uri=https://TUNNEL_URL/oauth/tiktok&state=xyz
    ```
-2. Setujui → redirect ke callback (404 tidak masalah) → salat `code=` dari URL.
-3. Tukar token (di VPS):
+3. Setujui → redirect ke receiver → buka `%TEMP%\oauth-callback.json` → salin `code`.
+4. Tukar token:
    ```bash
    curl -X POST https://open.tiktokapis.com/v2/oauth/token/ \
      -d "client_key=KEY" -d "client_secret=SECRET" \
      -d "code=CODE" -d "grant_type=authorization_code" \
-     -d "redirect_uri=https://DOMAIN-KAMU/callback-oauth"
+     -d "redirect_uri=https://TUNNEL_URL/oauth/tiktok"
    ```
-4. Simpan (ganti nilai dlm SQL):
+5. Simpan (ganti nilai dlm SQL):
    ```sql
    INSERT INTO tokens (platform, access_token, refresh_token, expires_at, extra)
    VALUES ('tiktok', 'ACCESS_TOKEN', 'REFRESH_TOKEN', now() + interval '1 day', '{}')
@@ -194,6 +218,32 @@ dari folder `/docs` repo ini — tanpa VPS/domain:
    folder **`/docs`** → Save.
 3. Tunggu 1–2 menit → `https://mraihan-xxl.github.io/invest-nyawit/bio.html`.
 4. Tempel URL itu sebagai link di bio TikTok/IG (tujuan klik dari video).
+
+## 9. Tunnel 24/7 + Scheduled Tasks (otomasi Windows)
+
+Sistem ini dirancang jalan di PC Windows (bukan VPS). Tiga scheduled task menjaga
+semua tetap hidup tanpa intervensi manual:
+
+| Task | Jadwal | Fungsi |
+|---|---|---|
+| `invest-nyawit-tunnel-up-min` | Setiap 10 menit | Jalankan `scripts/tunnel-up.ps1` (loop abadi): pastikan cloudflared hidup, sinkron URL baru ke `.env`, recreate stack, hapus webhook Telegram, notifikasi URL baru. Lock file cegah instance ganda. |
+| `invest-nyawit-backup-db` | Harian 03:00 | `scripts/backup-db.ps1`: pg_dump via docker exec → compress gzip → simpan di `D:\FlyEnv-Data\backup\invest-nyawit\` → rotasi 7 hari. Ringkasan mingguan (Senin) dikirim ke Telegram. |
+| `invest-nyawit-watchdog` | Setiap 10 menit | `scripts/watchdog.ps1`: cek cloudflared, semua container docker, n8n healthz, dashboard health, oauth-receiver health, sinkronisasi tunnel URL. Alert Telegram bila ada yang mati. |
+
+**Manual (sekali):** buat scheduled task via admin:
+```powershell
+schtasks /create /tn "invest-nyawit-tunnel-up-min" /tr "powershell -ExecutionPolicy Bypass -File 'D:\...\scripts\tunnel-up.ps1'" /sc minute /mo 10 /f
+schtasks /create /tn "invest-nyawit-backup-db" /tr "powershell -ExecutionPolicy Bypass -File 'D:\...\scripts\backup-db.ps1'" /sc daily /st 03:00 /f
+schtasks /create /tn "invest-nyawit-watchdog" /tr "powershell -ExecutionPolicy Bypass -File 'D:\...\scripts\watchdog.ps1'" /sc minute /mo 10 /f
+```
+
+**OAuth receiver:** jalankan manual (atau via startup shortcut):
+```powershell
+node scripts\oauth-receiver.js
+```
+Receiver listen di `:8099` (host), punya `/health` untuk watchdog, serve file
+`/.well-known/*` dari folder `well-known/` (untuk verifikasi URL TikTok), dan simpan
+callback OAuth ke `%TEMP%\oauth-callback.json`.
 
 ## Troubleshooting cepat
 

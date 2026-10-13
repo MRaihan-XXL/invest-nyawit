@@ -23,6 +23,11 @@
 		reverse_proxy host.docker.internal:8099
 	}
 
+	# TikTok URL verification file -> receiver di host (serve statis dari folder well-known)
+	handle /.well-known/* {
+		reverse_proxy host.docker.internal:8099
+	}
+
 	# Dashboard (auth oleh app.py) + link-in-bio publik.
 	handle /stats* {
 		reverse_proxy dashboard:8091
