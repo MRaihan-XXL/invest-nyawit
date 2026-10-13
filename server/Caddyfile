@@ -1,5 +1,40 @@
 # invest-nyawit — Caddy: HTTPS otomatis (Let's Encrypt) + reverse proxy n8n + media publik
 # DOMAIN diinjek dari docker-compose environment.
+#
+# Blok :80 = ORIGIN CLOUDFLARE TUNNEL (quick tunnel, URL acak per-restart).
+# Telegram webhook + link dashboard publik lewat sini. Auth dashboard = app.py
+# (STATS_USER + BASIC_AUTH_HASH); n8n UI TIDAK diekspos (hanya /webhook/*).
+:80 {
+	# Media hasil render — butuh publik untuk IG Graph API (video_url).
+	handle_path /media/* {
+		root * /media
+		@notmp4 not path *.mp4
+		respond @notmp4 404
+		file_server
+	}
+
+	# Telegram webhook -> n8n (satu-satunya path yang menyentuh n8n dari luar).
+	handle /webhook/* {
+		reverse_proxy n8n:5678
+	}
+
+	# Dashboard (auth oleh app.py) + link-in-bio publik.
+	handle /stats* {
+		reverse_proxy dashboard:8091
+	}
+	handle /api/* {
+		reverse_proxy dashboard:8091
+	}
+	handle /index.html {
+		reverse_proxy dashboard:8091
+	}
+	handle /bio* {
+		reverse_proxy dashboard:8091
+	}
+	handle {
+		reverse_proxy dashboard:8091
+	}
+}
 
 {$DOMAIN} {
 	# Media hasil render — dibutuhkan IG Graph API (video_url) & preview Telegram.
