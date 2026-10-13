@@ -3,7 +3,7 @@
 #   1. pastikan cloudflared hidup (auto-restart dgn URL baru bila crash)
 #   2. baca URL dari log
 #   3. bila URL != PUBLIC_BASE_URL di .env -> update .env -> docker compose up -d
-#      -> daftarkan ulang Telegram webhook (setWebhook) -> notifikasi ke bot
+#      -> jaga webhook Telegram bersih (deleteWebhook; WF03 = polling) -> notifikasi ke bot
 #   4. tidur 60s, ulang.
 # Tidak menyimpan rahasia apa pun di file ini - token dibaca dari .env saat runtime.
 
@@ -57,16 +57,15 @@ function Sync-Url($url) {
         $c = curl.exe -s --max-time 4 -o NUL -w "%{http_code}" 'http://127.0.0.1:5678/healthz'
         if ($c -eq 200) { break }
     }
-    # daftarkan ulang webhook Telegram (path = production webhook WF03, stabil)
+    # v3.5: WF03 pakai polling getUpdates - pastikan TIDAK ada webhook terdaftar
+    #       (webhook aktif -> getUpdates 409 -> polling macet diam-diam)
     $tok = Get-EnvLine 'TELEGRAM_BOT_TOKEN'
-    $wfh = '38e4f9bd-1cc1-4006-844d-52a68e674b88'
-    $wh  = "$url/webhook/$wfh/webhook"
-    curl.exe -s --max-time 15 "https://api.telegram.org/bot$tok/setWebhook?url=$wh" | Out-Null
+    curl.exe -s --max-time 15 "https://api.telegram.org/bot$tok/deleteWebhook" | Out-Null
     # kabarkan link baru ke owner
     $chat = Get-EnvLine 'TELEGRAM_CHAT_ID'
     $msg  = [uri]::EscapeDataString(" Tunnel baru (dashboard): $url/stats")
     curl.exe -s --max-time 15 "https://api.telegram.org/bot$tok/sendMessage?chat_id=$chat&text=$msg" | Out-Null
-    Log "setWebhook OK: $wh"
+    Log "deleteWebhook OK (polling mode)"
 }
 
 Log 'tunnel-up start'
