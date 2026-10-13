@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memproses OAuth TikTok…</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:480px;margin:60px auto;padding:0 20px;text-align:center;color:#111}
+  h1{font-size:20px} p{color:#555;font-size:14px;line-height:1.6}
+  a{color:#1d9bf0}
+  .box{background:#f6f8fa;border-radius:12px;padding:18px;margin-top:18px}
+</style>
+</head>
+<body>
+  <h1>Menyelesaikan login TikTok…</h1>
+  <div class="box">
+    <p id="msg">Meneruskan otorisasi ke perangkat kamu. Jangan tutup tab ini.</p>
+    <p><a id="manual" href="#">Kalau tidak otomatis, klik di sini</a></p>
+  </div>
+
+  <script>
+  (function () {
+    // Teruskan SEMUA param (code, state, error, dll) ke receiver lokal.
+    var params = location.search || '';
+    var target = 'http://localhost:8099/oauth/tiktok' + params;
+    var manual = document.getElementById('manual');
+    manual.setAttribute('href', target);
+    // Beri jeda 600ms agar link manual sempat terlihat kalau auto-redirect gagal.
+    setTimeout(function () { window.location.replace(target); }, 600);
+  })();
+  </script>
+</body>
+</html>
