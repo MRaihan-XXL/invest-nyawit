@@ -125,19 +125,33 @@ async function handleMeta(code, res) {
     ['Tukar long-lived gagal:', JSON.stringify(r2.body).slice(0, 300)]);
   const r3 = await fetchJson('https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token&access_token=' + encodeURIComponent(longTok));
   const pages = r3.body.data || [];
-  logJson({ provider: 'meta_pages', status: r3.status, pages: pages.map(p => ({ id: p.id, name: p.name })) });
+  logJson({ provider: 'meta_pages', status: r3.status, count: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name })) });
   if (!pages.length) return html(res, 400, 'Instagram gagal ❌',
-    ['Token OK tapi tidak ada Facebook Page yang terhubung ke akun ini.',
-      'Bikin/sambungkan Page ke Instagram dulu (Settings → Instagram → Connect), lalu ulangi link tadi.']);
-  const page = pages[0];
-  const r4 = await fetchJson('https://graph.facebook.com/v21.0/' + page.id +
-    '?fields=instagram_business_account&access_token=' + encodeURIComponent(page.access_token));
-  const igId = r4.body.instagram_business_account && r4.body.instagram_business_account.id;
-  logJson({ provider: 'meta_ig', status: r4.status, ig_user_id: igId, page: page.name });
-  if (!igId) return html(res, 400, 'Instagram gagal ❌',
-    [`Page "${page.name}" belum terhubung ke akun Instagram Business/Creator.`,
-      'Di IG: Settings → Account type → Professional. Di Facebook Page: Settings → Linked accounts → Instagram → Connect.',
-      'Setelah tersambung, ulangi link tadi.']);
+    ['Token OK tapi akun Facebook ini tidak punya satu pun Page.',
+      'Bikin Page dulu (facebook.com/pages/create), sambungkan ke IG, lalu ulangi link tadi.']);
+  // Cek SEMUA Page (bukan hanya yang pertama) — pilih yang sudah tersambung IG Business/Creator.
+  const checked = [];
+  let page = null, igId = null;
+  for (const p of pages) {
+    const r4 = await fetchJson('https://graph.facebook.com/v21.0/' + p.id +
+      '?fields=instagram_business_account,connected_instagram_account&access_token=' + encodeURIComponent(p.access_token));
+    const iba = r4.body.instagram_business_account;
+    const cia = r4.body.connected_instagram_account;
+    const id = (iba && iba.id) || (cia && cia.id) || null;
+    checked.push({ page: p.name, page_id: p.id, http: r4.status, ig_user_id: id, raw: r4.body });
+    if (id && !page) { page = p; igId = id; }
+  }
+  logJson({ provider: 'meta_ig', found: !!igId, checked });
+  if (!page) {
+    const names = pages.map(p => '"' + p.name + '"').join(', ');
+    return html(res, 400, 'Instagram gagal ❌',
+      ['Token OK, tapi belum ada Page yang tersambung ke IG Business/Creator.',
+        'Page ditemukan di akun ini: ' + names + '.',
+        'Langkah (urut): (1) IG harus akun profesional — IG: Pengaturan → Akun → Beralih ke akun profesional → Business.',
+        '(2) Sambungkan: di Page: Pengaturan → Akun Tertaut → Instagram → Sambungkan akun.',
+        '(3) Atau dari IG: Pengaturan → Pusat Akun → Profil → Tambah akun Facebook → pilih Page tadi.',
+        'Setelah tersambung, ulangi link authorize.']);
+  }
   const exp = new Date(Date.now() + 365 * 86400 * 1000).toISOString();
   upsertToken('instagram', page.access_token, '', exp,
     { ig_user_id: igId, page_id: page.id, page_name: page.name, user_long_lived: longTok });
