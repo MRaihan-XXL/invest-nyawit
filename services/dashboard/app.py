@@ -4,18 +4,24 @@
 Rute:
   GET /stats      — halaman statistik (KPI, diagram, tabel; auto-refresh 30 dtk)
   GET /api/stats  — JSON data untuk halaman di atas
-  GET /bio        — halaman link-in-bio (PUBLIK, tanpa auth — auth di Caddy utk /stats & /api)
+  GET /bio        — halaman link-in-bio (PUBLIK, tanpa auth)
   GET /health     — cek hidup
 
-Ketergantungan: hanya psycopg (Postgres). Auth basic dilakukan Caddy (lihat server/Caddyfile).
+Auth:
+  /stats, /api/stats, /api/trends — basic auth (STATS_USER + BASIC_AUTH_HASH)
+  /api/trends-ingest, /api/trends-score — internal token (X-Internal-Token)
+  /bio, /health — publik
 """
 
+import base64
 import html
+import hmac
 import json
 import os
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import bcrypt
 import psycopg
 from psycopg.rows import dict_row
 
@@ -23,11 +29,39 @@ PORT = int(os.environ.get("PORT", "8091"))
 SITE_HANDLE = os.environ.get("SITE_HANDLE", "@primefinds.id")
 PUBLIC_MEDIA_URL = os.environ.get("PUBLIC_MEDIA_URL", "")
 
+STATS_USER = os.environ.get("STATS_USER", "")
+BASIC_AUTH_HASH = os.environ.get("BASIC_AUTH_HASH", "")
+INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
+
 
 def _conn():
     # psycopg.connect() tanpa argumen memakai env libpq standar
     # (PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD) — diatur di docker-compose.
     return psycopg.connect(row_factory=dict_row)
+
+
+def _check_basic_auth(handler) -> bool:
+    """Verifikasi HTTP Basic Auth terhadap STATS_USER + BASIC_AUTH_HASH (bcrypt)."""
+    if not STATS_USER or not BASIC_AUTH_HASH:
+        return True  # belum dikonfigurasi → buka
+    hdr = handler.headers.get("Authorization", "")
+    if not hdr.startswith("Basic "):
+        return False
+    try:
+        user, pw = base64.b64decode(hdr[6:]).decode("utf-8").split(":", 1)
+    except Exception:
+        return False
+    if not hmac.compare_digest(user, STATS_USER):
+        return False
+    return bcrypt.checkpw(pw.encode("utf-8"), BASIC_AUTH_HASH.encode("utf-8"))
+
+
+def _check_internal_token(handler) -> bool:
+    """Verifikasi X-Internal-Token header (dipakai trend_scout → dashboard)."""
+    if not INTERNAL_API_TOKEN:
+        return True
+    hdr = handler.headers.get("X-Internal-Token", "")
+    return hmac.compare_digest(hdr, INTERNAL_API_TOKEN)
 
 
 def _num(v, default=0.0):
@@ -302,6 +336,55 @@ def fetch_trends():
     return {"by_source": by_source, "boosted_products": boosted, "summary": summary}
 
 
+def fetch_price_history():
+    """Riwayat snapshot harga per produk + % perubahan.
+
+    Angka hanya muncul bila akses harga tersedia — saat ini Shopee memblokir
+    endpoint harga tanpa login (error 90309999), jadi tabel bisa kosong.
+    Panel dashboard menampilkan status jujur, bukan angka karangan.
+    """
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ph.product_id, p.title, p.offer_url,
+                   count(*) AS snaps,
+                   (array_agg(ph.price_min ORDER BY ph.captured_at))[1] AS first_price,
+                   (array_agg(ph.price_min ORDER BY ph.captured_at DESC))[1] AS last_price,
+                   min(ph.captured_at) AS first_at,
+                   max(ph.captured_at) AS last_at
+            FROM price_history ph
+            JOIN products p ON p.id = ph.product_id
+            GROUP BY ph.product_id, p.title, p.offer_url
+            ORDER BY max(ph.captured_at) DESC
+            LIMIT 20
+            """
+        )
+        items = []
+        for row in cur:
+            d = dict(row)
+            first = _num(d["first_price"], 0.0)
+            last = _num(d["last_price"], 0.0)
+            pct = ((last - first) / first * 100.0) if first > 0 and d["snaps"] >= 2 else None
+            f_at, l_at = d["first_at"], d["last_at"]
+            days = 0.0
+            if isinstance(f_at, datetime) and isinstance(l_at, datetime):
+                days = max((l_at - f_at).total_seconds() / 86400.0, 0.0)
+            per_day = (pct / days) if pct is not None and days >= 1.0 else None
+            items.append({
+                "product_id": d["product_id"],
+                "title": d["title"],
+                "offer_url": d["offer_url"],
+                "snaps": d["snaps"],
+                "first_price": float(first) if first > 0 else None,
+                "last_price": float(last) if last > 0 else None,
+                "first_at": _iso(f_at),
+                "last_at": _iso(l_at),
+                "pct": round(pct, 2) if pct is not None else None,
+                "per_day": round(per_day, 2) if per_day is not None else None,
+            })
+    return {"items": items}
+
+
 def ingest_trends(trends: list[dict]) -> dict:
     """Insert batch tren ke DB. Dipanggil oleh trend_scout via POST."""
     if not trends:
@@ -458,6 +541,7 @@ STATS_HTML = """<!DOCTYPE html>
 
     <div class="card wide"><h2>🔥 Tren Pasar (update tiap 3 jam)</h2><div id="tTrends"></div></div>
     <div class="card wide"><h2>🚀 Produk Boost Tren</h2><div id="tBoost"></div></div>
+    <div class="card wide"><h2>📉 Riwayat Harga</h2><div id="tPrice"></div></div>
     <div class="card wide"><h2>10 post terakhir</h2><div id="tPosts"></div></div>
     <div class="card"><h2>Konversi terakhir</h2><div id="tConv"></div></div>
     <div class="card"><h2>Top produk (skor kurasi)</h2><div id="tProd"></div></div>
@@ -586,6 +670,27 @@ function renderTables(d){
     boostHtml = '<div class="empty">Belum ada produk yang match tren aktif.</div>';
   }
   document.getElementById('tBoost').innerHTML = boostHtml;
+
+  // Riwayat harga (honest: tanpa akses harga = tampil status, bukan angka karangan)
+  const ph = d.price_history || { items: [] };
+  let phHtml = '';
+  if (ph.items && ph.items.length) {
+    phHtml = '<table><thead><tr><th>Produk</th><th class="num">Snapshot</th><th class="num">Harga awal</th><th class="num">Harga terbaru</th><th class="num">% total</th><th class="num">%/hari</th><th>Terakhir</th></tr></thead><tbody>' +
+      ph.items.map(r => {
+        const pctTxt = r.pct == null ? '-'
+          : `<span style="color:${r.pct >= 0 ? 'var(--up)' : 'var(--down)'}">${r.pct >= 0 ? '+' : ''}${r.pct.toFixed(1)}%</span>`;
+        const dayTxt = r.per_day == null ? '-' : r.per_day.toFixed(1) + '%';
+        const rp2 = v => v ? ('Rp' + Math.round(v).toLocaleString('id-ID')) : '-';
+        return `<tr><td><a href="${esc(r.offer_url || '#')}" target="_blank" rel="noopener">${esc(r.title)}</a></td>` +
+          `<td class="num">${r.snaps}</td><td class="num">${rp2(r.first_price)}</td><td class="num">${rp2(r.last_price)}</td>` +
+          `<td class="num">${pctTxt}</td><td class="num">${dayTxt}</td><td>${fmt(r.last_at)}</td></tr>`;
+      }).join('') + '</tbody></table>' +
+      (ph.items.every(r => r.pct == null)
+        ? '<div class="empty" style="margin-top:8px">Belum cukup snapshot (&ge;2) untuk hitung % perubahan.</div>' : '');
+  } else {
+    phHtml = '<div class="empty">Belum ada data harga — Shopee memblokir harga tanpa login (error 90309999) dan API afiliasi belum aktif. Panel terisi otomatis begitu akses harga tersedia.</div>';
+  }
+  document.getElementById('tPrice').innerHTML = phHtml;
 
   document.getElementById('tPosts').innerHTML = table(d.recent_posts, [
     { h:'Judul', f:r=>esc(r.title) },
@@ -750,6 +855,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/health":
                 return self._send(200, b'{"ok":true,"service":"invest-nyawit-dashboard"}',
                                   "application/json")
+            if path == "/bio":
+                return self._send(200, bio_page(), "text/html; charset=utf-8")
+            # ── rute yang butuh basic auth ──
+            if path in ("/stats", "/index.html", "/", "/api/stats", "/api/trends"):
+                if not _check_basic_auth(self):
+                    body401 = b'{"ok":false}'
+                    self.send_response(401)
+                    self.send_header("WWW-Authenticate", 'Basic realm="invest-nyawit"')
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body401)))
+                    self.end_headers()
+                    self.wfile.write(body401)
+                    return
             if path in ("/stats", "/index.html", "/"):
                 return self._send(200, stats_page(), "text/html; charset=utf-8")
             if path == "/api/stats":
@@ -758,12 +876,14 @@ class Handler(BaseHTTPRequestHandler):
                     data["trends"] = fetch_trends()
                 except Exception:
                     data["trends"] = {"by_source": {}, "boosted_products": [], "summary": []}
+                try:
+                    data["price_history"] = fetch_price_history()
+                except Exception:
+                    data["price_history"] = {"items": []}
                 return self._send(200, json.dumps(data).encode("utf-8"), "application/json; charset=utf-8")
             if path == "/api/trends":
                 data = json.dumps(fetch_trends()).encode("utf-8")
                 return self._send(200, data, "application/json; charset=utf-8")
-            if path == "/bio":
-                return self._send(200, bio_page(), "text/html; charset=utf-8")
             self._send(404, b'{"ok":false,"error":"not found"}', "application/json")
         except Exception as e:  # noqa: BLE001 — laporkan apa adanya
             traceback_print()
@@ -773,6 +893,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
         try:
+            # ── rute internal (trend_scout) butuh token ──
+            if path in ("/api/trends-ingest", "/api/trends-score"):
+                if not _check_internal_token(self):
+                    body403 = b'{"ok":false}'
+                    self.send_response(403)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body403)))
+                    self.end_headers()
+                    self.wfile.write(body403)
+                    return
+
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length > 0 else b"{}"
             payload = json.loads(body) if body else {}

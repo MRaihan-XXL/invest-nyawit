@@ -147,3 +147,14 @@ CREATE TABLE IF NOT EXISTS trend_boosts (
     matched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (product_id, trend_id)
 );
+
+-- RIWAYAT HARGA (snapshot per produk; terisi otomatis begitu akses harga tersedia)
+CREATE TABLE IF NOT EXISTS price_history (
+    id          BIGSERIAL PRIMARY KEY,
+    product_id  BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    price_min   NUMERIC(12,2),
+    price_max   NUMERIC(12,2),
+    source      TEXT NOT NULL DEFAULT 'shopee',
+    captured_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_product ON price_history(product_id, captured_at);
