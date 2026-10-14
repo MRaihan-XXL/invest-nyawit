@@ -228,45 +228,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').first().json.ig_user_id }}/media?access_token={{ $('Build Requests').first().json.ig_access }}",
         "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "parameterType": "formBinaryData",
-              "name": "video",
-              "inputDataFieldName": "data"
-            },
-            {
-              "parameterType": "formUpload",
-              "name": "media_type",
-              "value": "REELS"
-            },
-            {
-              "parameterType": "formUpload",
-              "name": "upload_type",
-              "value": "VIDEO_FILE"
-            },
-            {
-              "parameterType": "formUpload",
-              "name": "caption",
-              "value": "={{ $('Build Requests').item.json.igContainer.caption }}"
-            },
-            {
-              "parameterType": "formUpload",
-              "name": "access_token",
-              "value": "={{ $('Build Requests').item.json.ig_access }}"
-            },
-            {
-              "parameterType": "formUpload",
-              "name": "share_to_feed",
-              "value": "true"
-            }
-          ]
-        },
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ media_type:'REELS', upload_type:'resumable', caption:$('Build Requests').first().json.igContainer.caption, share_to_feed:true }) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 60000
         }
       }
     },
@@ -280,7 +248,7 @@
         -60
       ],
       "parameters": {
-        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
+        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = ($('TikTok Inbox Init').first().json) || {};\nconst igC = ($('IG Create Container').first().json) || {};\nconst igR = ($('IG RUpload').first().json) || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\n\nconst igContainerId = igC.id || igC.creation_id || null;\nconst igOk = !!(igR.success) && !!igContainerId;\nconst igErr = igOk ? null : JSON.stringify({create: igC, upload: igR}).slice(0, 500);\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
       }
     },
     {
@@ -317,7 +285,7 @@
         "operation": "executeQuery",
         "query": "UPDATE scripts SET status = 'posted', updated_at = now() WHERE id = $1;",
         "options": {
-          "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
         }
       },
       "credentials": {
@@ -353,7 +321,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').first().json.ig_access }}",
         "options": {
           "timeout": 30000
         }
@@ -417,7 +385,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').first().json.ig_access }}",
         "options": {
           "timeout": 30000
         }
@@ -466,7 +434,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media_publish",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').first().json.ig_user_id }}/media_publish",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -478,7 +446,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ creation_id: $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id, access_token: $('Build Requests').item.json.ig_access }) }}",
+        "jsonBody": "={{ JSON.stringify({ creation_id: $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id, access_token: $('Build Requests').first().json.ig_access }) }}",
         "options": {
           "timeout": 60000
         }
@@ -497,7 +465,7 @@
         "operation": "executeQuery",
         "query": "UPDATE posts SET status = 'published', error = NULL WHERE script_id = $1 AND platform = 'instagram';",
         "options": {
-          "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
         }
       },
       "credentials": {
@@ -520,7 +488,7 @@
         "operation": "executeQuery",
         "query": "UPDATE posts SET status = 'failed', error = 'IG transcode timeout - publish manual dari app' WHERE script_id = $1 AND platform = 'instagram' AND status = 'submitted';",
         "options": {
-          "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+          "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
         }
       },
       "credentials": {
@@ -604,7 +572,7 @@
         320
       ],
       "parameters": {
-        "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').item.json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
+        "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').first().json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
       }
     },
     {
@@ -641,7 +609,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+        "url": "=http://render:8090/media/{{ $('Build Requests').first().json.media_file }}",
         "options": {
           "timeout": 300000,
           "response": {
@@ -663,13 +631,13 @@
       ],
       "parameters": {
         "method": "PUT",
-        "url": "={{ $('TikTok Inbox Init').item.json.data.upload_url }}",
+        "url": "={{ $('TikTok Inbox Init').first().json.data.upload_url }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Range",
-              "value": "=bytes 0-{{ $('Build Requests').item.json.video_size - 1 }}/{{ $('Build Requests').item.json.video_size }}"
+              "value": "=bytes 0-{{ $('Build Requests').first().json.video_size - 1 }}/{{ $('Build Requests').first().json.video_size }}"
             }
           ]
         },
@@ -698,7 +666,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+        "url": "={{ 'http://render:8090/media/' + $('Build Requests').first().json.media_file }}",
         "options": {
           "timeout": 300000,
           "response": {
@@ -708,6 +676,43 @@
           }
         }
       }
+    },
+    {
+      "name": "IG RUpload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1870,
+        -140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('IG Create Container').first().json.uri }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'OAuth ' + $('Build Requests').first().json.ig_access }}"
+            },
+            {
+              "name": "offset",
+              "value": "0"
+            },
+            {
+              "name": "file_size",
+              "value": "={{ String($('Build Requests').first().json.video_size) }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -993,7 +998,7 @@
       "main": [
         [
           {
-            "node": "Fetch IG Video",
+            "node": "IG Create Container",
             "type": "main",
             "index": 0
           }
@@ -1004,7 +1009,7 @@
       "main": [
         [
           {
-            "node": "IG Create Container",
+            "node": "IG RUpload",
             "type": "main",
             "index": 0
           }
@@ -1012,6 +1017,17 @@
       ]
     },
     "IG Create Container": {
+      "main": [
+        [
+          {
+            "node": "Fetch IG Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG RUpload": {
       "main": [
         [
           {
@@ -1302,7 +1318,7 @@
         ],
         "parameters": {
           "method": "POST",
-          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').first().json.ig_user_id }}/media",
           "sendBody": true,
           "contentType": "multipart-form-data",
           "bodyParameters": {
@@ -1325,12 +1341,12 @@
               {
                 "parameterType": "formUpload",
                 "name": "caption",
-                "value": "={{ $('Build Requests').item.json.igContainer.caption }}"
+                "value": "={{ $('Build Requests').first().json.igContainer.caption }}"
               },
               {
                 "parameterType": "formUpload",
                 "name": "access_token",
-                "value": "={{ $('Build Requests').item.json.ig_access }}"
+                "value": "={{ $('Build Requests').first().json.ig_access }}"
               },
               {
                 "parameterType": "formUpload",
@@ -1391,7 +1407,7 @@
           "operation": "executeQuery",
           "query": "UPDATE scripts SET status = 'posted', updated_at = now() WHERE id = $1;",
           "options": {
-            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+            "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
           }
         },
         "credentials": {
@@ -1427,7 +1443,7 @@
         ],
         "parameters": {
           "method": "GET",
-          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').first().json.ig_access }}",
           "options": {
             "timeout": 30000
           }
@@ -1491,7 +1507,7 @@
         ],
         "parameters": {
           "method": "GET",
-          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').item.json.ig_access }}",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id }}?fields=status_code&access_token={{ $('Build Requests').first().json.ig_access }}",
           "options": {
             "timeout": 30000
           }
@@ -1540,7 +1556,7 @@
         ],
         "parameters": {
           "method": "POST",
-          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').item.json.ig_user_id }}/media_publish",
+          "url": "=https://graph.facebook.com/v21.0/{{ $('Build Requests').first().json.ig_user_id }}/media_publish",
           "sendHeaders": true,
           "headerParameters": {
             "parameters": [
@@ -1552,7 +1568,7 @@
           },
           "sendBody": true,
           "specifyBody": "json",
-          "jsonBody": "={{ JSON.stringify({ creation_id: $('IG Create Container').item.json.id || $('IG Create Container').item.json.creation_id, access_token: $('Build Requests').item.json.ig_access }) }}",
+          "jsonBody": "={{ JSON.stringify({ creation_id: $('IG Create Container').first().json.id || $('IG Create Container').first().json.creation_id, access_token: $('Build Requests').first().json.ig_access }) }}",
           "options": {
             "timeout": 60000
           }
@@ -1571,7 +1587,7 @@
           "operation": "executeQuery",
           "query": "UPDATE posts SET status = 'published', error = NULL WHERE script_id = $1 AND platform = 'instagram';",
           "options": {
-            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+            "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
           }
         },
         "credentials": {
@@ -1594,7 +1610,7 @@
           "operation": "executeQuery",
           "query": "UPDATE posts SET status = 'failed', error = 'IG transcode timeout - publish manual dari app' WHERE script_id = $1 AND platform = 'instagram' AND status = 'submitted';",
           "options": {
-            "queryReplacement": "={{ [ $('Build Requests').item.json.script_id ] }}"
+            "queryReplacement": "={{ [ $('Build Requests').first().json.script_id ] }}"
           }
         },
         "credentials": {
@@ -1678,7 +1694,7 @@
           320
         ],
         "parameters": {
-          "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').item.json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
+          "jsCode": "// Simpan hasil refresh (toleran: kalau gagal, token lama tetap dipakai).\nconst req = $('Build Refresh Requests').first().json;\nconst res = $json;\nconst nowSec = Math.floor(Date.now() / 1000);\nconst out = [];\nif (req.platform === 'tiktok' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'tiktok', access: res.access_token, refresh: res.refresh_token || '', exp } });\n} else if (req.platform === 'instagram' && res.access_token) {\n  const exp = new Date((nowSec + (res.expires_in || 60 * 86400)) * 1000).toISOString();\n  out.push({ json: { platform: 'instagram', access: res.access_token, refresh: '', exp } });\n}\nreturn out;"
         }
       },
       {
@@ -1715,7 +1731,7 @@
         ],
         "parameters": {
           "method": "GET",
-          "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+          "url": "=http://render:8090/media/{{ $('Build Requests').first().json.media_file }}",
           "options": {
             "timeout": 300000,
             "response": {
@@ -1737,13 +1753,13 @@
         ],
         "parameters": {
           "method": "PUT",
-          "url": "={{ $('TikTok Inbox Init').item.json.data.upload_url }}",
+          "url": "={{ $('TikTok Inbox Init').first().json.data.upload_url }}",
           "sendHeaders": true,
           "headerParameters": {
             "parameters": [
               {
                 "name": "Content-Range",
-                "value": "=bytes 0-{{ $('Build Requests').item.json.video_size - 1 }}/{{ $('Build Requests').item.json.video_size }}"
+                "value": "=bytes 0-{{ $('Build Requests').first().json.video_size - 1 }}/{{ $('Build Requests').first().json.video_size }}"
               }
             ]
           },
@@ -1771,7 +1787,7 @@
         ],
         "parameters": {
           "method": "GET",
-          "url": "=http://render:8090/media/{{ $('Build Requests').item.json.media_file }}",
+          "url": "=http://render:8090/media/{{ $('Build Requests').first().json.media_file }}",
           "options": {
             "timeout": 300000,
             "response": {
