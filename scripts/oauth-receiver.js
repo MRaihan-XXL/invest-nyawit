@@ -1,4 +1,4 @@
-// oauth-receiver.js v2 — OAuth 1-klik-OK untuk TikTok + Instagram.
+// oauth-receiver.js v3 — OAuth 1-klik-OK untuk TikTok + Instagram.
 // - GET /health                     → healthcheck (watchdog)
 // - GET /.well-known/<file>         → file verifikasi URL TikTok
 // - GET /oauth/start/tiktok         → 302 ke authorize TikTok (redirect_uri = GitHub Pages permanen)
@@ -123,6 +123,26 @@ async function handleMeta(code, res) {
   logJson({ provider: 'meta_long', status: r2.status, has_token: !!longTok });
   if (!longTok) return html(res, 400, 'Instagram gagal ❌',
     ['Tukar long-lived gagal:', JSON.stringify(r2.body).slice(0, 300)]);
+
+  // ── DIAGNOSTIC: identitas akun yang baru authorize + scope yang benar-benar ter-grant ──
+  try {
+    const me = await fetchJson('https://graph.facebook.com/v21.0/me?fields=id,name&access_token=' + encodeURIComponent(longTok));
+    logJson({ provider: 'meta_me', id: me.body.id, name: me.body.name, status: me.status });
+  } catch (e) { logJson({ provider: 'meta_me', err: String(e) }); }
+  try {
+    const dv = await fetchJson('https://graph.facebook.com/v21.0/debug_token?input_token=' +
+      encodeURIComponent(longTok) + '&access_token=' + encodeURIComponent(appId + '|' + sec));
+    const d = dv.body && dv.body.data;
+    logJson({ provider: 'meta_debug', status: dv.status, scopes: (d && d.scopes) || (d && d.granular_scopes) || null,
+      is_valid: d && d.is_valid, app_id: d && d.app_id });
+  } catch (e) { logJson({ provider: 'meta_debug', err: String(e) }); }
+  // ── DIAGNOSTIC: probe langsung ke Page ID yang diketahui — membedakan
+  //    "Page tak terlihat di /me/accounts (portofolio/bisnis)" vs "Page memang tidak ada" ──
+  try {
+    const dg = await fetchJson('https://graph.facebook.com/v21.0/1394674410394276?fields=name,instagram_business_account&access_token=' + encodeURIComponent(longTok));
+    logJson({ provider: 'meta_direct_page', status: dg.status, body: dg.body });
+  } catch (e) { logJson({ provider: 'meta_direct_page', err: String(e) }); }
+
   const r3 = await fetchJson('https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token&access_token=' + encodeURIComponent(longTok));
   const pages = r3.body.data || [];
   logJson({ provider: 'meta_pages', status: r3.status, count: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name })) });
@@ -215,6 +235,9 @@ const server = http.createServer(async (req, res) => {
       client_id: env('IG_APP_ID'),
       redirect_uri: 'http://localhost:8099/oauth/meta',
       scope: 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement',
+      // Facebook Login for Business: "all permissions must be granted or NONE" —
+      // tanpa rerequest, Facebook menolak memberi izin ulang dan memakai setelan lama yang cacat.
+      auth_type: 'rerequest',
       response_type: 'code', state: st });
     logJson({ action: 'start_meta' });
     res.writeHead(302, { Location: 'https://www.facebook.com/v21.0/dialog/oauth?' + q });
