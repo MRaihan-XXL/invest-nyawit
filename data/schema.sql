@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS posts (
     posted_at    TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Satu post per (script, platform) — cegah publish dobel.
+ALTER TABLE posts ADD CONSTRAINT uq_posts_script_platform UNIQUE (script_id, platform);
 CREATE INDEX IF NOT EXISTS idx_posts_script ON posts(script_id);
 
 CREATE TABLE IF NOT EXISTS conversions (

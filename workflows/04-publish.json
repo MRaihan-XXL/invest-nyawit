@@ -58,7 +58,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.status IN ('submitted','published') AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
+        "query": "UPDATE scripts SET status = 'publishing', updated_at = now() WHERE id = (SELECT s.id FROM scripts s WHERE s.media_file IS NOT NULL AND (s.status = 'approved' OR (s.status = 'publishing' AND s.updated_at < now() - interval '2 hours')) AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.script_id = s.id AND p.status IN ('submitted','published')) AND (SELECT COUNT(DISTINCT script_id) FROM posts p2 WHERE p2.posted_at > now() - interval '1 day' AND p2.status IN ('submitted','published')) < 4 ORDER BY s.id LIMIT 1) RETURNING *;",
         "options": {}
       },
       "credentials": {
@@ -248,7 +248,7 @@
         -60
       ],
       "parameters": {
-        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = ($('TikTok Inbox Init').first().json) || {};\nconst igC = ($('IG Create Container').first().json) || {};\nconst igR = ($('IG RUpload').first().json) || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\n\nconst igContainerId = igC.id || igC.creation_id || null;\nconst igOk = !!(igR.success) && !!igContainerId;\nconst igErr = igOk ? null : JSON.stringify({create: igC, upload: igR}).slice(0, 500);\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
+        "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = ($('TikTok Inbox Init').first().json) || {};\nconst igC = ($('IG Create Container').first().json) || {};\nconst igR = ($('IG RUpload').first().json) || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\n\nconst igContainerId = igC.id || igC.creation_id || null;\nconst igOk = !!(igR.success) && !!igContainerId;\nconst igErr = igOk ? null : JSON.stringify({create: igC, upload: igR}).slice(0, 500);\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now()) ON CONFLICT (script_id, platform) DO NOTHING;`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now()) ON CONFLICT (script_id, platform) DO NOTHING;`\n  }\n});\nreturn out;"
       }
     },
     {
@@ -1149,7 +1149,7 @@
         ],
         "parameters": {
           "operation": "executeQuery",
-          "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
+          "query": "UPDATE scripts SET status = 'publishing', updated_at = now() WHERE id = (SELECT s.id FROM scripts s WHERE s.media_file IS NOT NULL AND (s.status = 'approved' OR (s.status = 'publishing' AND s.updated_at < now() - interval '2 hours')) AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.script_id = s.id AND p.status IN ('submitted','published')) AND (SELECT COUNT(DISTINCT script_id) FROM posts p2 WHERE p2.posted_at > now() - interval '1 day' AND p2.status IN ('submitted','published')) < 4 ORDER BY s.id LIMIT 1) RETURNING *;",
           "options": {}
         },
         "credentials": {
@@ -1370,7 +1370,7 @@
           -60
         ],
         "parameters": {
-          "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now());`\n  }\n});\nreturn out;"
+          "jsCode": "// Catat submit ke posts + tandai script posted.\nconst ctx = $('Build Requests').first().json;\nconst tt = $('TikTok Inbox Init').first().json || {};\nconst ig = $('IG Create Container').first().json || {};\nconst out = [];\n\nconst ttOk = !!(tt.data && tt.data.publish_id);\nconst ttErr = ttOk ? null : JSON.stringify(tt).slice(0, 500);\nconst igOk = !!(ig.id || ig.creation_id);\nconst igErr = igOk ? null : JSON.stringify(ig).slice(0, 500);\nconst igContainerId = ig.id || ig.creation_id || null;\n\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'tiktok', '${ttOk ? tt.data.publish_id : ''}', '${ttOk ? 'submitted' : 'failed'}', ${ttErr ? \"'\" + ttErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now()) ON CONFLICT (script_id, platform) DO NOTHING;`\n  }\n});\nout.push({\n  json: {\n    sql: `INSERT INTO posts (script_id, platform, external_id, status, error, posted_at) VALUES (${ctx.script_id}, 'instagram', '${igOk ? igContainerId : ''}', '${igOk ? 'submitted' : 'failed'}', ${igErr ? \"'\" + igErr.replace(/'/g, \"''\") + \"'\" : 'NULL'}, now()) ON CONFLICT (script_id, platform) DO NOTHING;`\n  }\n});\nreturn out;"
         }
       },
       {
