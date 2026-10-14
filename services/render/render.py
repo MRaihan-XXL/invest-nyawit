@@ -96,7 +96,7 @@ def fetch_image(url_or_path, dest):
         (dest.with_suffix(dest.suffix + ".chk.png")).unlink(missing_ok=True)
         return dest
     except Exception as e:  # noqa: BLE001
-        print("[warn] image fetch failed (%s): %s -> placeholder" % (url_or_path, e))
+        print("[warn] image fetch failed (%s): %s -> placeholder" % (url_or_path, e), file=sys.stderr)
         run([FFMPEG, "-y", "-f", "lavfi",
              "-i", "color=c=0x16213e:s=%dx%d" % (W * 2, H * 2),
              "-frames:v", "1", str(dest)])
@@ -368,8 +368,10 @@ def render_job(job, media_dir):
             seg_name = "seg_%02d.mp4" % i
             fetch_image(sc.get("image") or "", workdir / img_name)
             words = synthesize(text, voice, workdir / mp3_name)
-            dur = ffprobe_duration(workdir / mp3_name)
-            dur = min(max(dur, 1.2), 12.0)
+            raw_dur = ffprobe_duration(workdir / mp3_name)
+            dur = min(max(raw_dur, 1.2), 12.0)
+            if raw_dur > 12.0:
+                print("[warn] scene %d audio %.1fs dipotong ke 12.0s (narasi kepanjangan)" % (i, raw_dur), file=sys.stderr)
             build_segment(workdir, i, img_name, mp3_name, text, dur,
                           is_hook=(sc.get("style") == "hook" or i == 0),
                           handle=handle, out_seg=workdir / seg_name,
