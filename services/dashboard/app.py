@@ -43,7 +43,7 @@ def _conn():
 def _check_basic_auth(handler) -> bool:
     """Verifikasi HTTP Basic Auth terhadap STATS_USER + BASIC_AUTH_HASH (bcrypt)."""
     if not STATS_USER or not BASIC_AUTH_HASH:
-        return True  # belum dikonfigurasi → buka
+        return False  # belum dikonfigurasi → TOLAK (default-deny)
     hdr = handler.headers.get("Authorization", "")
     if not hdr.startswith("Basic "):
         return False
@@ -59,7 +59,7 @@ def _check_basic_auth(handler) -> bool:
 def _check_internal_token(handler) -> bool:
     """Verifikasi X-Internal-Token header (dipakai trend_scout → dashboard)."""
     if not INTERNAL_API_TOKEN:
-        return True
+        return False  # belum dikonfigurasi → TOLAK (default-deny)
     hdr = handler.headers.get("X-Internal-Token", "")
     return hmac.compare_digest(hdr, INTERNAL_API_TOKEN)
 

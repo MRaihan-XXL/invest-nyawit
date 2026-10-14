@@ -76,9 +76,14 @@
 		reverse_proxy dashboard:8091
 	}
 
-	# Dashboard + webhook n8n
-	handle {
+	# Webhook n8n (satu-satunya path yang menyentuh n8n dari publik).
+	handle /webhook/* {
 		reverse_proxy n8n:5678
+	}
+
+	# Catch-all -> dashboard (n8n UI TIDAK diekspos dari domain).
+	handle {
+		reverse_proxy dashboard:8091
 	}
 
 	header {
