@@ -20,18 +20,31 @@ akun, OAuth sekali, tempel token. Sisanya otomatis.
 2. Chat @userinfobot → catat **chat ID** kamu (untuk approval).
 
 ### 0d. Shopee Affiliate Open API
-1. Daftar https://affiliate.shopee.co.id → aktivasi program affiliate.
-2. Menu Open API / Developer → buat aplikasi → dapat **APPID + SECRET**.
-3. **CATATAN PENTING (riset 13/10/2026):** Shopee Open Platform **hanya buka API
-   untuk (a) Shopee Seller** (Individual/Registered Business) dengan ≥30 orders/30 hari
-   di ID, **atau (b) ISV berbadan hukum (PT/CV)**. Affiliate tanpa toko / tanpa PT
-   **tidak memenuhi syarat** — jangan buang waktu daftar Open Platform. Jalur legal:
-   tetap pakai seed/manual (sudah jalan) atau tunggu undangan Shopee Affiliate
-   API (invite-only untuk affiliate volume tinggi). Scraping = against ToS.
-4. **Opsional** — tanpa APPID/SECRET sistem tetap jalan: WF01 (harvest) & WF05
-   (laporan konversi) melewati cabang API Shopee **diam** (eksekusi tetap sukses).
-   APPID hanya untuk harvest produk otomatis + laporan konversi; begitu kunci diisi
-   di `.env` + recreate n8n, cabang itu otomatis aktif penuh.
+1. Login https://affiliate.shopee.co.id (aktivasi program affiliate dulu bila
+   belum) → menu **Open API** di navigasi kiri bawah → salin **AppID** dan
+   **Secret**.
+2. Isi di `.env` → `SHOPEE_AFFILIATE_APPID` + `SHOPEE_AFFILIATE_SECRET`, lalu
+   recreate n8n:
+   ```bash
+   docker compose --env-file .env -f server/docker-compose.yml up -d
+   ```
+3. **Ini BEDA dari https://open.shopee.com** — Open Platform Shopee
+   (open.shopee.com) untuk Seller/ISV, **TIDAK untuk affiliate, butuh badan
+   usaha**. **CATATAN PENTING (riset 13/10/2026):** Shopee Open Platform
+   **hanya buka API untuk (a) Shopee Seller** (Individual/Registered Business)
+   dengan ≥30 orders/30 hari di ID, **atau (b) ISV berbadan hukum (PT/CV)**.
+   Affiliate tanpa toko / tanpa PT **tidak memenuhi syarat** — jangan buang
+   waktu daftar Open Platform. Affiliate API ada di dashboard affiliate
+   sendiri (menu Open API), endpoint
+   `https://open-api.affiliate.shopee.co.id/graphql`. Jalur legal: tetap pakai
+   seed/manual (sudah jalan). Scraping = against ToS.
+4. **AppID/Secret terisi:** WF05 (`05-analytics`) otomatis tarik
+   `conversionReport` harian → tabel `conversions` → dashboard menampilkan
+   komisi real (KPI income + list konversi).
+5. **AppID/SECRET kosong:** WF05 dilewati senyap (fail-soft) dan income di
+   dashboard = 0. WF01 (harvest) juga melewati cabang API Shopee **diam**
+   (eksekusi tetap sukses) — begitu kunci diisi di `.env` + recreate n8n,
+   cabang itu otomatis aktif penuh.
 
 ### 0e. TikTok Developer (Content Posting API + Login Kit)
 1. https://developers.tiktok.com → **Developer Portal** → Create app (atau buka app
@@ -106,15 +119,26 @@ cp .env.example .env && nano .env     # isi SEMUA nilai
 # (perhatikan: perintahnya diawali 'caddy' — image Caddy memakai CMD, bukan ENTRYPOINT;
 #  --env-file .env juga wajib — compose tidak baca .env root secara otomatis)
 docker compose --env-file .env -f server/docker-compose.yml run --rm --no-deps caddy caddy hash-password --plaintext 'pilih-kata-sandi-dashboard'
-# tempel hasilnya (diawali $2a$/$2b$) ke .env → BASIC_AUTH_HASH, DENGAN kutip satu:
-#   BASIC_AUTH_HASH='$2a$12$...'
+# tempel hasilnya (diawali $2a$/$2b$) ke .env → BASIC_AUTH_HASH, dengan tiap
+# tanda $ di-escape jadi $$ — docker-compose meng-interpolasi $ (contoh:
+#   BASIC_AUTH_HASH=$$2a$$14$$...)
 nano .env
 
 docker compose --env-file .env -f server/docker-compose.yml up -d --build
 ```
 
 Cek: `docker compose --env-file .env -f server/docker-compose.yml ps` (semua Up),
-buka `https://investmu.duckdns.org` → halaman login n8n (user/pass dibuat sekali).
+buka `https://investmu.duckdns.org` → dashboard (login Basic Auth).
+
+**Catatan keamanan:**
+- Akses `/stats` & `/api/stats` butuh **Basic Auth**: user default `admin`
+  (variabel `STATS_USER`), password = hash bcrypt di `.env` var
+  `BASIC_AUTH_HASH`. Di `.env`, nilai hash bcrypt harus di-escape `$` → `$$`
+  (contoh: `BASIC_AUTH_HASH=$$2a$$14$$...`) karena docker-compose
+  meng-interpolasi `$`. Auth sekarang **default-deny**: tanpa kredensial →
+  ditolak, bukan dibuka.
+- n8n UI **tidak diekspos dari publik** — hanya path `/webhook/*` yang
+  di-proxy ke n8n; catch-all domain diarahkan ke dashboard.
 
 Dashboard: LAN `http://192.168.18.228:8091/stats` (user/pass = `STATS_USER` + kata
 sandi yang tadi di-hash), atau remote `https://investmu.duckdns.org/stats` lewat tunnel
@@ -254,6 +278,6 @@ callback OAuth ke `%TEMP%\oauth-callback.json`.
 | Workflow diam tanpa error | kredensial belum di-attach | buka node bertanda REPLACE_ME, pilih credential |
 | WF04 error `Token ... belum diisi di tabel tokens` tiap 30 menit | tabel `tokens` kosong | ikuti langkah OAuth §5 — sinyal token belum diisi, bukan bug |
 | Telegram tidak merespons tap ✅ | polling WF03 tidak jalan | cek `TELEGRAM_BOT_TOKEN` di `.env` + node `Poll Schedule`/`Get Updates` (webhook tidak dipakai) |
-| WF01/WF05 dilewati senyap untuk Shopee | `SHOPEE_AFFILIATE_APPID`/`SECRET` kosong | perilaku fail-soft; isi `.env` + recreate n8n (§0d) |
-| Caddy restart loop di awal | `BASIC_AUTH_HASH` bukan bcrypt | hash ulang dengan `caddy hash-password`; pakai kutip satu di `.env` |
+| WF01/WF05 dilewati senyap + income dashboard = 0 | `SHOPEE_AFFILIATE_APPID`/`SECRET` kosong | perilaku fail-soft; salin AppID/Secret dari menu Open API (§0d) + recreate n8n |
+| Caddy restart loop di awal | `BASIC_AUTH_HASH` bukan bcrypt | hash ulang dengan `caddy hash-password`; escape `$` → `$$` di `.env` (lihat §3) |
 | `/stats` 401 terus | user/pass salah | cocokkan `STATS_USER` + kata sandi yang di-hash (bukan hash-nya) |
