@@ -235,20 +235,9 @@ def fetch_shopee_trending() -> list[dict]:
             except (json.JSONDecodeError, KeyError):
                 pass
         if not results:
-            # Fallback: cari link produk di HTML
-            links = re.findall(r'/[^"\']+-(\d{6,})', html)
-            seen = set()
-            for lid in links[:20]:
-                if lid not in seen:
-                    seen.add(lid)
-                    results.append({
-                        "source": "shopee",
-                        "keyword": f"shopee_item_{lid}",
-                        "region": "id",
-                        "volume": None,
-                        "rank": len(results) + 1,
-                        "category": None,
-                    })
+            # Jangan fabricate keyword palsu (shopee_item_{id}) — itu hanya noise
+            # dan merembet jadi hashtag sampah di caption video.
+            print("[WARN] Shopee trending: tidak ada nama produk valid dari HTML", file=sys.stderr)
         print(f"[OK] Shopee trending: {len(results)} items")
     except Exception as e:
         print(f"[WARN] Shopee trending gagal: {e}", file=sys.stderr)
