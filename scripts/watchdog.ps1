@@ -37,7 +37,7 @@ try {
     if (-not $cf) { $issues += 'cloudflared mati' }
 
     # 2. docker containers running?
-    $want = @('invest-nyawit-postgres-1','invest-nyawit-n8n-1','invest-nyawit-caddy-1','invest-nyawit-dashboard-1','invest-nyawit-render-1')
+    $want = @('invest-nyawit-postgres-1','invest-nyawit-n8n-1','invest-nyawit-caddy-1','invest-nyawit-dashboard-1','invest-nyawit-render-1','invest-nyawit-trend_scout-1')
     $running = (docker ps --format '{{.Names}}') -join "`n"
     foreach ($c in $want) {
         if ($running -notmatch [regex]::Escape($c)) { $issues += "container $c tidak running" }
@@ -55,15 +55,25 @@ try {
     $oauth = curl.exe -s --max-time 5 -o NUL -w "%{http_code}" 'http://127.0.0.1:8099/health'
     if ($oauth -ne '200') { $issues += "oauth-receiver health=$oauth" }
 
-    # 6. tunnel URL sinkron?
-    $tunnelUrl = $null
-    $log = Join-Path $env:TEMP 'cloudflared-live.log'
-    if (Test-Path $log) {
-        $m = Select-String -Path $log -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
-        if ($m) { $tunnelUrl = $m.Matches[0].Value }
+    # 6. tunnel benar-benar nyambung? (deteksi error registrasi di log, bukan cuma proses ada)
+    $cfLog = Join-Path $env:TEMP 'cloudflared-live.log'
+    if (Test-Path $cfLog) {
+        $cfErr = Get-Content $cfLog -Tail 30 | Where-Object { $_ -match 'ERR.*(Tunnel not found|Unauthorized|connection.*refused|failed.*to.*connect)' }
+        if ($cfErr) { $issues += "tunnel cloudflared error: $(($cfErr | Select-Object -Last 1).Trim())" }
     }
-    $cur = (Get-EnvLine 'PUBLIC_BASE_URL').Trim()
-    if ($tunnelUrl -and $tunnelUrl -ne $cur) { $issues += "tunnel URL beda (.env=$cur live=$tunnelUrl) - tunnel-up seharusnya sync" }
+
+    # 7. backup umur: harus ada file backup < 25 jam
+    $backupDir = 'D:\FlyEnv-Data\backup\invest-nyawit'
+    if (Test-Path $backupDir) {
+        $latest = Get-ChildItem $backupDir -Filter 'investnyawit-*.sql.gz' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $latest) {
+            $issues += 'backup: tidak ada file backup sama sekali'
+        } elseif (((Get-Date) - $latest.LastWriteTime).TotalHours -gt 25) {
+            $issues += ("backup: file terakhir {0} ({1:N1} jam lalu) - lebih dari 25 jam" -f $latest.LastWriteTime.ToString('yyyy-MM-dd HH:mm'), ((Get-Date) - $latest.LastWriteTime).TotalHours)
+        }
+    } else {
+        $issues += "backup: direktori $backupDir tidak ada"
+    }
 
     if ($issues.Count -gt 0) {
         $msg = "[invest-nyawit] WATCHDOG ALERT`n" + ($issues -join "`n")
