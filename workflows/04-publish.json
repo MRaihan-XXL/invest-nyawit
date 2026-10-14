@@ -58,7 +58,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
+        "query": "SELECT s.* FROM scripts s WHERE s.status = 'approved' AND s.media_file IS NOT NULL AND (SELECT count(*) FROM posts p WHERE p.platform = 'tiktok' AND p.status IN ('submitted','published') AND p.posted_at > now() - interval '1 day') < 4 ORDER BY s.id LIMIT 1;",
         "options": {}
       },
       "credentials": {
