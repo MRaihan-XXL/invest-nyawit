@@ -30,7 +30,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 # ─── CONFIG ─────────────────────────────────────────────────────────────────
-PG_DSN = os.environ.get("DATABASE_URL", "")
 HTTP_TIMEOUT = 20
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
