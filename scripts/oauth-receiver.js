@@ -1,4 +1,4 @@
-// oauth-receiver.js v3 — OAuth 1-klik-OK untuk TikTok + Instagram.
+// oauth-receiver.js v4 — OAuth 1-klik-OK untuk TikTok + Instagram.
 // - GET /health                     → healthcheck (watchdog)
 // - GET /.well-known/<file>         → file verifikasi URL TikTok
 // - GET /oauth/start/tiktok         → 302 ke authorize TikTok (redirect_uri = GitHub Pages permanen)
@@ -88,6 +88,11 @@ function checkState(got) {
 // Halaman docs/oauth-tiktok.html meneruskan ?code=&state= ke receiver lokal (/oauth/tiktok).
 const TIKTOK_REDIRECT_URI = 'https://mraihan-xxl.github.io/invest-nyawit/oauth-tiktok.html';
 
+// Page "Prime Finds ID" yang sudah tersambung ke IG Business @primefinds.id.
+// Dipakai sebagai CADANGAN ketika /me/accounts mengembalikan kosong (umum terjadi pada
+// Facebook Login for Business — Page disembunyikan dari /me/accounts padahal ada & valid).
+const KNOWN_PAGE_ID = '1394674410394276';
+
 // ── auto-exchange TikTok ──
 async function handleTikTok(code, res) {
   const key = env('TIKTOK_CLIENT_KEY'), sec = env('TIKTOK_CLIENT_SECRET');
@@ -136,19 +141,21 @@ async function handleMeta(code, res) {
     logJson({ provider: 'meta_debug', status: dv.status, scopes: (d && d.scopes) || (d && d.granular_scopes) || null,
       is_valid: d && d.is_valid, app_id: d && d.app_id });
   } catch (e) { logJson({ provider: 'meta_debug', err: String(e) }); }
-  // ── DIAGNOSTIC: probe langsung ke Page ID yang diketahui — membedakan
-  //    "Page tak terlihat di /me/accounts (portofolio/bisnis)" vs "Page memang tidak ada" ──
+  // ── DIAGNOSTIC + CADANGAN: probe langsung ke Page ID yang diketahui ──
+  //    Membedakan "Page tak terlihat di /me/accounts (portofolio/bisnis)" vs "Page memang tidak ada".
+  //    Hasilnya dipakai sebagai fallback penyimpanan token bila /me/accounts kosong.
+  let directPage = null;
   try {
-    const dg = await fetchJson('https://graph.facebook.com/v21.0/1394674410394276?fields=name,instagram_business_account&access_token=' + encodeURIComponent(longTok));
+    const dg = await fetchJson('https://graph.facebook.com/v21.0/' + KNOWN_PAGE_ID +
+      '?fields=name,instagram_business_account&access_token=' + encodeURIComponent(longTok));
     logJson({ provider: 'meta_direct_page', status: dg.status, body: dg.body });
+    if (dg.body && dg.body.id) directPage = dg.body;
   } catch (e) { logJson({ provider: 'meta_direct_page', err: String(e) }); }
 
   const r3 = await fetchJson('https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token&access_token=' + encodeURIComponent(longTok));
   const pages = r3.body.data || [];
   logJson({ provider: 'meta_pages', status: r3.status, count: pages.length, pages: pages.map(p => ({ id: p.id, name: p.name })) });
-  if (!pages.length) return html(res, 400, 'Instagram gagal ❌',
-    ['Token OK tapi akun Facebook ini tidak punya satu pun Page.',
-      'Bikin Page dulu (facebook.com/pages/create), sambungkan ke IG, lalu ulangi link tadi.']);
+
   // Cek SEMUA Page (bukan hanya yang pertama) — pilih yang sudah tersambung IG Business/Creator.
   const checked = [];
   let page = null, igId = null;
@@ -162,21 +169,51 @@ async function handleMeta(code, res) {
     if (id && !page) { page = p; igId = id; }
   }
   logJson({ provider: 'meta_ig', found: !!igId, checked });
-  if (!page) {
-    const names = pages.map(p => '"' + p.name + '"').join(', ');
+
+  // ── CADANGAN: /me/accounts kosong ATAU tak ada Page tersambung IG.
+  //    Probe langsung ke KNOWN_PAGE_ID tetap bisa mengembalikan instagram_business_account.
+  //    Tanpa fallback ini token BERHASIL di-exchange tapi tidak pernah tersimpan (bug 14-10-2026).
+  let pageId = page && page.id, pageName = page && page.name, pageTok = page && page.access_token;
+  if (!igId && directPage) {
+    const iba = directPage.instagram_business_account;
+    const cia = directPage.connected_instagram_account;
+    const id = (iba && iba.id) || (cia && cia.id) || null;
+    if (id) {
+      igId = id;
+      pageId = pageId || directPage.id;
+      pageName = pageName || directPage.name;
+      logJson({ provider: 'meta_fallback', via: 'direct_page_probe', page_id: pageId, page_name: pageName, ig_user_id: igId });
+    }
+  }
+
+  if (!igId) {
+    const names = pages.length
+      ? 'Page di akun ini: ' + pages.map(p => '"' + p.name + '"').join(', ') + ' (belum ada yang tersambung IG).'
+      : '/me/accounts kosong dan probe langsung tidak menemukan instagram_business_account.';
     return html(res, 400, 'Instagram gagal ❌',
-      ['Token OK, tapi belum ada Page yang tersambung ke IG Business/Creator.',
-        'Page ditemukan di akun ini: ' + names + '.',
+      ['Token OK, tapi tidak bisa menemukan IG Business yang tersambung.', names,
         'Langkah (urut): (1) IG harus akun profesional — IG: Pengaturan → Akun → Beralih ke akun profesional → Business.',
         '(2) Sambungkan: di Page: Pengaturan → Akun Tertaut → Instagram → Sambungkan akun.',
         '(3) Atau dari IG: Pengaturan → Pusat Akun → Profil → Tambah akun Facebook → pilih Page tadi.',
         'Setelah tersambung, ulangi link authorize.']);
   }
+
+  // Dokumen resmi Meta (media_publish): "Requires a USER access token with instagram_basic
+  // dan instagram_content_publish, dan app user harus punya task MANAGE/CREATE_CONTENT di Page tersambung."
+  // -> simpan user long-lived token, bukan Page token.
   const exp = new Date(Date.now() + 365 * 86400 * 1000).toISOString();
-  upsertToken('instagram', page.access_token, '', exp,
-    { ig_user_id: igId, page_id: page.id, page_name: page.name, user_long_lived: longTok });
-  tgSend(`Instagram terhubung ✅\nPage: ${page.name}\nIG id: ${igId}\n(Page access token — wajib utk publish Reels)`);
-  html(res, 200, 'Instagram terhubung ✅', [`Page: ${page.name}`, `IG user id: ${igId}`, 'Token Page tersimpan otomatis.']);
+  upsertToken('instagram', longTok, '', exp,
+    { ig_user_id: igId, page_id: pageId, page_name: pageName, page_access_token: pageTok || null, user_long_lived: longTok });
+
+  // Self-check: buktikan token benar-benar bisa membaca IG account yang dituju.
+  try {
+    const v = await fetchJson('https://graph.facebook.com/v21.0/' + igId +
+      '?fields=id,username,account_type&access_token=' + encodeURIComponent(longTok));
+    logJson({ provider: 'meta_ig_verify', status: v.status, body: v.body });
+  } catch (e) { logJson({ provider: 'meta_ig_verify', err: String(e) }); }
+
+  tgSend(`Instagram terhubung ✅\nPage: ${pageName}\nIG id: ${igId}\n(user long-lived token — instagram_content_publish)`);
+  html(res, 200, 'Instagram terhubung ✅', [`Page: ${pageName}`, `IG user id: ${igId}`, 'Token tersimpan otomatis.']);
 }
 
 // ── halaman fragment-capture: gabungkan #hash ke query lalu redirect balik ──
