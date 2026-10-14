@@ -1,16 +1,11 @@
 {
+  "updatedAt": "2026-10-14T01:46:21.963Z",
+  "createdAt": "2026-10-12T05:51:39.318Z",
   "id": "MOUN9WujgBXqQQrE",
   "name": "04-publish",
   "description": null,
   "active": true,
-  "activeVersionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
-  "createdAt": "2026-10-12T05:51:39.318Z",
-  "updatedAt": "2026-10-13T05:18:13.494Z",
   "isArchived": false,
-  "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
-  "versionCounter": 3,
-  "sourceWorkflowId": null,
-  "triggerCount": 2,
   "nodes": [
     {
       "id": "a4000001-0000-4000-8000-000000000001",
@@ -137,7 +132,7 @@
         -60
       ],
       "parameters": {
-        "jsCode": "// Gabungkan script + token; siapkan request pertama TikTok (creator_info).\nconst script = $('Pick Approved').first().json;\nconst tokens = {};\nfor (const t of $input.all()) {\n  if (t.json.platform) tokens[t.json.platform] = t.json;\n}\nconst tt = tokens.tiktok;\nconst ig = tokens.instagram;\nif (!tt || !tt.access_token) throw new Error('Token TikTok belum diisi di tabel tokens');\nif (!ig || !ig.access_token) throw new Error('Token Instagram belum diisi di tabel tokens');\n\nconst hashtags = /#[\\w]+/.test(script.caption || '') ? '' : '#fyp #viral #rekomendasi';\nconst caption = ((script.title || script.hook || '') + '\\n\\n' + (script.caption || '') + ' ' + hashtags + '\\n\\nLink di bio 🔗').trim().slice(0, 2000);\nconst videoSize = Number(script.media_bytes) || 0;\nif (videoSize <= 0) throw new Error('media_bytes kosong untuk script ' + script.id);\n\nreturn {\n  json: {\n    script_id: script.id,\n    media_file: script.media_file,\n    video_size: videoSize,\n    caption,\n    tt_access: tt.access_token,\n    ig_access: ig.access_token,\n    ig_user_id: (ig.extra && (ig.extra.ig_user_id || ig.extra.user_id)) || null\n  }\n};"
+        "jsCode": "// Gabungkan script + token; siapkan request pertama TikTok (creator_info).\n// v2: toleran — publish ke platform yang token-nya SIAP saja (bukan mensyaratkan keduanya).\nconst script = $('Pick Approved').first().json;\nconst tokens = {};\nfor (const t of $input.all()) {\n  if (t.json.platform) tokens[t.json.platform] = t.json;\n}\nconst tt = tokens.tiktok;\nconst ig = tokens.instagram;\nconst hasTt = !!(tt && tt.access_token);\nconst hasIg = !!(ig && ig.access_token);\nif (!hasTt && !hasIg) throw new Error('Tabel tokens kosong - belum ada token TikTok maupun Instagram');\n\nconst hashtags = /#[\\w]+/.test(script.caption || '') ? '' : '#fyp #viral #rekomendasi';\nconst caption = ((script.title || script.hook || '') + '\\n\\n' + (script.caption || '') + ' ' + hashtags + '\\n\\nLink di bio ??').trim().slice(0, 2000);\nconst videoSize = Number(script.media_bytes) || 0;\nif (videoSize <= 0) throw new Error('media_bytes kosong untuk script ' + script.id);\n\nreturn {\n  json: {\n    script_id: script.id,\n    media_file: script.media_file,\n    video_size: videoSize,\n    caption,\n    has_tt: hasTt,\n    has_ig: hasIg,\n    tt_access: hasTt ? tt.access_token : '',\n    ig_access: hasIg ? ig.access_token : '',\n    ig_user_id: hasIg ? ((ig.extra && (ig.extra.ig_user_id || ig.extra.user_id)) || null) : null\n  }\n};"
       }
     },
     {
@@ -171,7 +166,8 @@
         "options": {
           "timeout": 30000
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "id": "a4000001-0000-4000-8000-000000000008",
@@ -688,7 +684,8 @@
             }
           }
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "id": "9b513f42-ddbd-43a0-8fdc-5581169d6ff7",
@@ -1026,7 +1023,6 @@
       ]
     }
   },
-  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1"
   },
@@ -1041,39 +1037,48 @@
     },
     "node:Every 18h": {
       "recurrenceRules": [
-        8
+        2
       ],
       "recurrenceRuleSignatures": [
         "hours:18"
       ]
     }
   },
-  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": false
   },
-  "tags": [],
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "207698f6-e35d-4401-bcd3-3eeac50f3ef1",
+  "activeVersionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
+  "versionCounter": 4,
+  "triggerCount": 2,
+  "sourceWorkflowId": null,
   "shared": [
     {
+      "updatedAt": "2026-10-12T05:51:39.318Z",
+      "createdAt": "2026-10-12T05:51:39.318Z",
       "role": "workflow:owner",
       "workflowId": "MOUN9WujgBXqQQrE",
       "projectId": "yH40ow4k04WIR3UG",
       "project": {
+        "updatedAt": "2026-10-12T05:47:57.877Z",
+        "createdAt": "2026-10-12T05:45:32.131Z",
         "id": "yH40ow4k04WIR3UG",
         "name": "Owner Nyawit <admin@investnyawit.local>",
         "type": "personal",
         "icon": null,
         "description": null,
         "customTelemetryTags": [],
-        "creatorId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
-        "createdAt": "2026-10-12T05:45:32.131Z",
-        "updatedAt": "2026-10-12T05:47:57.877Z"
-      },
-      "createdAt": "2026-10-12T05:51:39.318Z",
-      "updatedAt": "2026-10-12T05:51:39.318Z"
+        "creatorId": "cda312b1-25e5-4272-930d-6b83fae4a1ac"
+      }
     }
   ],
+  "tags": [],
+  "parentFolder": null,
   "activeVersion": {
+    "updatedAt": "2026-10-13T05:18:13.499Z",
+    "createdAt": "2026-10-13T05:18:13.499Z",
     "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
     "workflowId": "MOUN9WujgBXqQQrE",
     "nodes": [
@@ -2096,17 +2101,38 @@
     "name": null,
     "description": null,
     "autosaved": false,
-    "createdAt": "2026-10-13T05:18:13.499Z",
-    "updatedAt": "2026-10-13T05:18:13.499Z",
     "workflowPublishHistory": [
       {
+        "createdAt": "2026-10-13T05:18:13.642Z",
         "id": 53,
         "workflowId": "MOUN9WujgBXqQQrE",
         "versionId": "c324c2f8-1263-4ee8-b6fd-ce53bcc483cf",
         "event": "activated",
-        "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac",
-        "createdAt": "2026-10-13T05:18:13.642Z"
+        "userId": "cda312b1-25e5-4272-930d-6b83fae4a1ac"
       }
     ]
-  }
+  },
+  "scopes": [
+    "execution:delete",
+    "execution:list",
+    "execution:read",
+    "execution:reveal",
+    "workflow:create",
+    "workflow:delete",
+    "workflow:disableRedaction",
+    "workflow:enableRedaction",
+    "workflow:execute",
+    "workflow:execute-chat",
+    "workflow:export",
+    "workflow:import",
+    "workflow:list",
+    "workflow:move",
+    "workflow:publish",
+    "workflow:read",
+    "workflow:share",
+    "workflow:unpublish",
+    "workflow:unshare",
+    "workflow:update"
+  ],
+  "checksum": "f39df75fb2e7064499b1a293f88eb1e803179b20532f1c5f1bf94f2fbdd18939"
 }
